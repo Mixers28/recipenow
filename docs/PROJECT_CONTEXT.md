@@ -5,8 +5,9 @@
 
 <!-- SUMMARY_START -->
 **Summary (auto-maintained by Agent):**
-- [Fill in a short 3–6 bullet summary of your project here.]
-- This block is meant to be overwritten by the code agent as the project evolves.
+- Template repo for running a local MCP-style context kit with PROJECT_CONTEXT, NOW, and SESSION_NOTES memories.
+- Long-term product requirements still pending; placeholder sections remain until the owner supplies details.
+- Current priority is to capture real objectives and backlog items so the workflow becomes meaningful.
 <!-- SUMMARY_END -->
 
 ---
