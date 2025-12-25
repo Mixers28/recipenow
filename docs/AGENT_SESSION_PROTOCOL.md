@@ -1,61 +1,58 @@
 # Agent Session Protocol
 
-Version: 1.0  
-Owner: You  
-Agents: Any code assistant (e.g. VS Code Code Agent), optional external assistant (Nova, ChatGPT, etc.)
+Version: 1.1
+Owner: You
 
----
+## Purpose
+Define how a human and a local code agent coordinate using this repo's memory
+files so every session starts with shared context and ends with consistent
+writeback. The Codex handoff extension is used for explicit agent selection.
 
-## 0. Purpose
+## Memory Files
+- Long-term memory (LTM): `docs/PROJECT_CONTEXT.md`
+- Working memory (WM): `docs/NOW.md`
+- Session memory (SM): `docs/SESSION_NOTES.md`
+- Design notes: `docs/PERSISTENT_AGENT_WORKFLOW.md`
 
-Define **how sessions start, how context is loaded, and how sessions end** when working on this project with AI agents.
+## Start Session (Context Hydration)
+Preferred: VS Code task `Start Session (Agent - Coder)` (or pick another role; see `.vscode/tasks.json`).
 
-The goal:
-
-- Agents always share the same context.
-- Docs remain accurate and in sync.
-- Every session leaves a clear trail in `SESSION_NOTES.md`.
-- Git commits act as checkpoints.
-
----
-
-## 1. Files Used as Memory
-
-- `docs/PROJECT_CONTEXT.md` → long-term memory (LTM)
-- `docs/NOW.md` → working memory (WM)
-- `docs/SESSION_NOTES.md` → session memory (SM)
-- `docs/MCP_LOCAL_DESIGN.md` → conceptual design for this system
-- `docs/AGENT_SESSION_PROTOCOL.md` → this file (rules)
-
-Agents should read these before doing significant work.
-
----
-
-## 2. Start Session Protocol
-
-Run the **“Start Session (Agent)”** task (see `.vscode/tasks.json`), which executes:
-
+CLI equivalent:
+```bash
+# macOS/Linux
+bash ./scripts/session-helper.sh --mode start --agent-role Coder --open-docs
+```
 ```powershell
-pwsh ./scripts/session-helper.ps1 -Mode Start -OpenDocs
+# Windows
+pwsh ./scripts/session-helper.ps1 -Mode Start -AgentRole Coder -OpenDocs
+```
 
-This will:
+Agent instructions:
+1. Read (in order): `docs/PROJECT_CONTEXT.md`, `docs/NOW.md`, `docs/SESSION_NOTES.md` (recent).
+2. Summarize context in 3-6 bullets.
+3. If using the extension, select the active agent in the status bar.
+4. Wait for the next instruction.
 
-Show the current Git branch.
+## End Session (Writeback + Checkpoint)
+Preferred: VS Code task `End Session (Agent + Commit)` (see `.vscode/tasks.json`).
 
-Print a SESSION START prompt tailored for the code agent.
+CLI equivalent:
+```bash
+# macOS/Linux
+bash ./scripts/session-helper.sh --mode end
+```
+```powershell
+# Windows
+pwsh ./scripts/session-helper.ps1 -Mode End
+```
 
-Optionally open the core docs in VS Code.
+Human steps:
+1. Paste the printed `SESSION END` block into the agent.
+2. Add 2-5 bullets describing what happened this session (what you changed, why).
+3. Let the agent update the memory files in the workspace.
+4. Return to the terminal and press Enter to run `scripts/commit-session.sh` / `scripts/commit-session.ps1`.
 
-You then:
-
-Copy the printed SESSION START block.
-
-Paste it into your local code assistant (e.g., VS Code Code Agent).
-
-Let the agent:
-
-Read PROJECT_CONTEXT.md, NOW.md, SESSION_NOTES.md.
-
-Summarise current context in 3–6 bullets.
-
-Wait for your instructions.
+Writeback expectations:
+- `docs/PROJECT_CONTEXT.md`: update only when higher-level decisions/constraints changed; refresh summary blocks if present.
+- `docs/NOW.md`: update immediate next steps and current focus; refresh summary blocks if present.
+- `docs/SESSION_NOTES.md`: append a new dated entry (do not overwrite previous entries).

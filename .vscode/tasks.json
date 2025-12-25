@@ -2,26 +2,122 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Start Session (Agent)",
+      "label": "Start Session (Agent - Coder)",
       "type": "shell",
-      "command": "pwsh",
+      "command": "bash",
       "args": [
-        "./scripts/session-helper.ps1",
-        "-Mode",
-        "Start",
-        "-OpenDocs"
+        "./scripts/session-helper.sh",
+        "--mode",
+        "start",
+        "--agent-role",
+        "Coder",
+        "--open-docs"
       ],
+      "windows": {
+        "command": "pwsh",
+        "args": [
+          "./scripts/session-helper.ps1",
+          "-Mode",
+          "Start",
+          "-AgentRole",
+          "Coder",
+          "-OpenDocs"
+        ]
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Start Session (Agent - Architect)",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "./scripts/session-helper.sh",
+        "--mode",
+        "start",
+        "--agent-role",
+        "Architect",
+        "--open-docs"
+      ],
+      "windows": {
+        "command": "pwsh",
+        "args": [
+          "./scripts/session-helper.ps1",
+          "-Mode",
+          "Start",
+          "-AgentRole",
+          "Architect",
+          "-OpenDocs"
+        ]
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Start Session (Agent - Reviewer)",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "./scripts/session-helper.sh",
+        "--mode",
+        "start",
+        "--agent-role",
+        "Reviewer",
+        "--open-docs"
+      ],
+      "windows": {
+        "command": "pwsh",
+        "args": [
+          "./scripts/session-helper.ps1",
+          "-Mode",
+          "Start",
+          "-AgentRole",
+          "Reviewer",
+          "-OpenDocs"
+        ]
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Start Session (Agent - QA)",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "./scripts/session-helper.sh",
+        "--mode",
+        "start",
+        "--agent-role",
+        "QA",
+        "--open-docs"
+      ],
+      "windows": {
+        "command": "pwsh",
+        "args": [
+          "./scripts/session-helper.ps1",
+          "-Mode",
+          "Start",
+          "-AgentRole",
+          "QA",
+          "-OpenDocs"
+        ]
+      },
       "problemMatcher": []
     },
     {
       "label": "End Session (Agent + Commit)",
       "type": "shell",
-      "command": "pwsh",
+      "command": "bash",
       "args": [
-        "./scripts/session-helper.ps1",
-        "-Mode",
-        "End"
+        "./scripts/session-helper.sh",
+        "--mode",
+        "end"
       ],
+      "windows": {
+        "command": "pwsh",
+        "args": [
+          "./scripts/session-helper.ps1",
+          "-Mode",
+          "End"
+        ]
+      },
       "problemMatcher": []
     }
   ]

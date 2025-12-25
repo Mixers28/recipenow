@@ -2,11 +2,16 @@ param(
     [ValidateSet("Start", "End")]
     [string]$Mode = "Start",
 
+    [ValidateSet("Architect", "Coder", "Reviewer", "QA")]
+    [string]$AgentRole = "Coder",
+
     [switch]$OpenDocs
 )
 
 $scriptDir   = Split-Path -Parent $MyInvocation.MyCommand.Path
 $projectRoot = Resolve-Path (Join-Path $scriptDir "..")
+$agentRoleSlug = $AgentRole.ToLowerInvariant()
+$agentRoleFile = ".github/agents/$agentRoleSlug.agent.md"
 
 Write-Host "Local MCP – $Mode Session" -ForegroundColor Cyan
 Write-Host ""
@@ -36,6 +41,9 @@ You are a local code assistant working on this project.
 
 Before doing anything:
 
+0. Assume the role described here:
+   - $agentRoleFile
+
 1. Read these files in this order:
    - docs/PROJECT_CONTEXT.md
    - docs/NOW.md
@@ -48,10 +56,14 @@ Before doing anything:
 
     if ($OpenDocs) {
         Write-Host ""
-        Write-Host "Opening docs in VS Code..." -ForegroundColor Green
-        Push-Location $projectRoot
-        code ".\docs\PROJECT_CONTEXT.md" ".\docs\NOW.md" ".\docs\SESSION_NOTES.md" ".\docs\AGENT_SESSION_PROTOCOL.md"
-        Pop-Location
+        if (Get-Command code -ErrorAction SilentlyContinue) {
+            Write-Host "Opening docs in VS Code..." -ForegroundColor Green
+            Push-Location $projectRoot
+            code $agentRoleFile "docs/PROJECT_CONTEXT.md" "docs/NOW.md" "docs/SESSION_NOTES.md" "docs/AGENT_SESSION_PROTOCOL.md"
+            Pop-Location
+        } else {
+            Write-Host "VS Code 'code' CLI not found; open docs manually." -ForegroundColor Yellow
+        }
     }
 }
 elseif ($Mode -eq "End") {

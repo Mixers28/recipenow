@@ -1,20 +1,20 @@
 # NOW - Working Memory (WM)
 
-> This file captures the **current focus / sprint**.  
-> It should always describe what we're doing *right now*.
+> This file captures the current focus / sprint.
+> It should always describe what we're doing right now.
 
 <!-- SUMMARY_START -->
 **Current Focus (auto-maintained by Agent):**
-- Polish the docs so the workflow is unmistakable.
-- Build an end-to-end example project walkthrough.
-- Trial the kit against one real codebase.
+- Update docs to reflect the merged persistent agent workflow (memory kit + Codex extension).
+- Validate the handoff UI, command wiring, and active agent selection on VS Code stable.
+- Ensure Windows support is solid across scripts, paths, and instructions.
 <!-- SUMMARY_END -->
 
 ---
 
 ## Current Objective
 
-Deliver a polished local-mcp-context-kit template that includes example usage and has been validated on a real repo.
+Deliver a coherent persistent agent workflow template with accurate docs and a stable Codex handoff extension.
 
 ---
 
@@ -26,20 +26,19 @@ Deliver a polished local-mcp-context-kit template that includes example usage an
 
 ## What We Are Working On Right Now
 
-- [ ] Tighten and proofread all docs (PROJECT_CONTEXT, NOW, SESSION_NOTES, supporting guides).
-- [ ] Create an example project walkthrough showing how agents update the memory files.
-- [ ] Run the workflow on a real codebase to confirm the process is solid.
+- [x] Replace MCP framing in docs with the persistent agent workflow source of truth.
+- [ ] Document the extension handoff UX (status bar, tree view, commands).
+- [ ] Verify command wiring and basic smoke tests on VS Code stable.
 
 ---
 
 ## Next Small Deliverables
 
-- Updated docs folder with polished guidance and screenshots if needed.
-- Checked-in example project or scenario illustrating usage.
-- Report/findings from testing the kit on a live repo.
+- A clear usage section for selecting and handing off to agents.
+- A quick validation note or checklist for Windows behavior.
 
 ---
 
 ## Notes / Scratchpad
 
-- Blocked on gathering any additional stakeholder requirements before publishing widely.
+- MCP terminology is deprecated; the new design doc is `docs/PERSISTENT_AGENT_WORKFLOW.md`.

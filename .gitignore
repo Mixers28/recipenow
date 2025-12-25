@@ -1,15 +1,13 @@
-
----
-
-## 6️⃣ .gitignore (basic)
-
-### `.gitignore`
-
-```gitignore
 # Node / tooling (if you extend it)
 node_modules/
 npm-debug.log*
+*.vsix
 
 # OS junk
 .DS_Store
 Thumbs.db
+Desktop.ini
+
+# Editor junk
+.vscode/*.log
+.vscode/.react/

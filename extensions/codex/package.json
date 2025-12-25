@@ -1,0 +1,120 @@
+{
+  "name": "codex-chat-participants",
+  "displayName": "Codex Chat Participants",
+  "description": "Local chat participants for Codex handoffs",
+  "version": "0.0.3",
+  "publisher": "local",
+  "private": true,
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Mixers28/local-mcp-context-kit.git"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "panel": [
+        {
+          "id": "codexHandoff",
+          "title": "Codex Handoff",
+          "icon": "$(symbol-method)"
+        }
+      ]
+    },
+    "views": {
+      "codexHandoff": [
+        {
+          "id": "codexHandoffView",
+          "name": "Quick Handoff",
+          "type": "tree"
+        }
+      ]
+    },
+    "chatParticipants": [
+      {
+        "id": "mix.codex",
+        "name": "codex",
+        "fullName": "Codex Agent",
+        "description": "Orchestrate and hand off tasks",
+        "isSticky": true
+      },
+      {
+        "id": "mix.architect",
+        "name": "architect",
+        "fullName": "Architect",
+        "description": "Design specs and acceptance criteria"
+      },
+      {
+        "id": "mix.coder",
+        "name": "coder",
+        "fullName": "Coder",
+        "description": "Implement requested changes"
+      },
+      {
+        "id": "mix.reviewer",
+        "name": "reviewer",
+        "fullName": "Reviewer",
+        "description": "Review for risks and test gaps"
+      },
+      {
+        "id": "mix.qa",
+        "name": "qa",
+        "fullName": "QA",
+        "description": "Produce focused test plans"
+      }
+    ],
+    "commands": [
+      { "command": "codex.handoff", "title": "Codex: Hand off task" },
+      { "command": "codex.handoffToArchitect", "title": "Hand off to Architect", "icon": "$(symbol-class)" },
+      { "command": "codex.handoffToCoder", "title": "Hand off to Coder", "icon": "$(code)" },
+      { "command": "codex.handoffToReviewer", "title": "Hand off to Reviewer", "icon": "$(check)" },
+      { "command": "codex.handoffToQA", "title": "Hand off to QA", "icon": "$(beaker)" },
+      { "command": "codex.refreshHandoff", "title": "Refresh", "icon": "$(refresh)" }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "codex.refreshHandoff",
+          "when": "view == codexHandoffView",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "codex.handoffToArchitect",
+          "when": "view == codexHandoffView && viewItem == architect"
+        },
+        {
+          "command": "codex.handoffToCoder",
+          "when": "view == codexHandoffView && viewItem == coder"
+        },
+        {
+          "command": "codex.handoffToReviewer",
+          "when": "view == codexHandoffView && viewItem == reviewer"
+        },
+        {
+          "command": "codex.handoffToQA",
+          "when": "view == codexHandoffView && viewItem == qa"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "vscode:prepublish": "npm run compile"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.90.0",
+    "typescript": "^5.4.5"
+  }
+}
