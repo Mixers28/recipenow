@@ -35,7 +35,6 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.activate = activate;
 const vscode = __importStar(require("vscode"));
-const path_1 = require("path");
 const WorkflowOrchestrator_1 = require("./orchestrator/WorkflowOrchestrator");
 // Constants
 const FRONTMATTER_DELIMITER = '---';
@@ -88,41 +87,11 @@ class HandoffTreeProvider {
         return Promise.resolve(this.handoffItems);
     }
 }
-class WorkflowStatusItem extends vscode.TreeItem {
-    constructor(status) {
-        super(status.label, vscode.TreeItemCollapsibleState.None);
-        this.status = status;
-        this.description = status.state;
-        this.iconPath = iconForState(status.state);
-    }
-}
-class WorkflowStatusProvider {
-    constructor(statuses) {
-        this.statuses = statuses;
-        this._onDidChangeTreeData = new vscode.EventEmitter();
-        this.onDidChangeTreeData = this._onDidChangeTreeData.event;
-    }
-    setStatuses(statuses) {
-        this.statuses = statuses;
-        this._onDidChangeTreeData.fire();
-    }
-    getTreeItem(element) {
-        return element;
-    }
-    getChildren(_element) {
-        return Promise.resolve(this.statuses.map(status => new WorkflowStatusItem(status)));
-    }
-}
 function activate(ctx) {
     // Register the TreeDataProvider
     const handoffProvider = new HandoffTreeProvider();
     const treeView = vscode.window.createTreeView('codexHandoffView', {
         treeDataProvider: handoffProvider,
-        showCollapseAll: false
-    });
-    const workflowStatusProvider = new WorkflowStatusProvider(buildPendingStatuses());
-    const workflowStatusView = vscode.window.createTreeView('codexWorkflowStatusView', {
-        treeDataProvider: workflowStatusProvider,
         showCollapseAll: false
     });
     // Refresh command
@@ -177,32 +146,21 @@ function activate(ctx) {
         }
     }
     // Helper function to send chat request to participant
-    async function handoffToParticipant(participantId, participantName) {
-        const editor = vscode.window.activeTextEditor;
-        let context = "";
-        const MAX_CONTEXT_LENGTH = 200;
-        // Get selected text or active file context
-        if (editor && editor.selection && !editor.selection.isEmpty) {
-            context = editor.document.getText(editor.selection);
+    async function handoffToParticipant(participantId, participantName, overridePrompt) {
+        let instruction = overridePrompt;
+        // If no override, use selected text as context
+        if (!instruction) {
+            const editor = vscode.window.activeTextEditor;
+            const MAX_CONTEXT_LENGTH = 200;
+            // Get selected text if available
+            if (editor && editor.selection && !editor.selection.isEmpty) {
+                let context = editor.document.getText(editor.selection);
+                // Truncate if too large
+                instruction = context.length > MAX_CONTEXT_LENGTH
+                    ? context.substring(0, MAX_CONTEXT_LENGTH)
+                    : context;
+            }
         }
-        else if (editor) {
-            // Get current file info using cross-platform path handling
-            const fileName = (0, path_1.basename)(editor.document.fileName);
-            context = `Current file: ${fileName}`;
-        }
-        // Truncate context if too large
-        const displayContext = context.length > MAX_CONTEXT_LENGTH
-            ? `${context.substring(0, MAX_CONTEXT_LENGTH)}...`
-            : context;
-        // Prompt user for handoff instructions
-        const instruction = await vscode.window.showInputBox({
-            prompt: `Enter task for ${participantName}`,
-            placeHolder: 'What should this agent do?',
-            value: displayContext ? `Work on: ${displayContext}` : ''
-        });
-        // Validate instruction is not empty or whitespace
-        if (!instruction || !instruction.trim())
-            return;
         // Get agent instructions from .agent.md file
         const agentInstructions = await getAgentInstructions(participantName);
         // Build the complete chat message with agent instructions prepended
@@ -210,7 +168,10 @@ function activate(ctx) {
         if (agentInstructions) {
             chatMessage += `${INSTRUCTION_SEPARATOR}${agentInstructions}${INSTRUCTION_SEPARATOR}`;
         }
-        chatMessage += instruction;
+        // Add context/instruction if available
+        if (instruction) {
+            chatMessage += instruction;
+        }
         try {
             // Use the command to open chat panel with the message
             await vscode.commands.executeCommand('workbench.action.chat.open', {
@@ -222,31 +183,16 @@ function activate(ctx) {
         }
     }
     // Codex (coordinator)
-    const codex = vscode.chat.createChatParticipant("mix.codex", async (req, _chatCtx, stream, token) => {
+    const codex = vscode.chat.createChatParticipant("mix.codex", async (req, _chatCtx, stream, _token) => {
         stream.markdown(`Starting orchestrated workflow...\n`);
-        workflowStatusProvider.setStatuses(buildPendingStatuses());
-        let latestStatuses = buildPendingStatuses();
-        const workflowResults = await orchestrator.runWorkflow(req.prompt, {
-            token,
-            onUpdate: statuses => {
-                latestStatuses = statuses;
-                workflowStatusProvider.setStatuses(statuses);
-            }
-        });
-        if (token?.isCancellationRequested && workflowResults.length === 0) {
-            stream.markdown("Workflow cancelled before preparing any handoffs.");
-            return { metadata: { workflowResults, basePrompt: req.prompt, statuses: latestStatuses } };
-        }
-        if (token?.isCancellationRequested) {
-            stream.markdown("Workflow cancelled. Prepared prompts so far:\n");
-        }
+        const workflowResults = await orchestrator.runWorkflow(req.prompt);
         workflowResults.forEach(result => {
             stream.markdown(formatAgentSection(result));
         });
         if (workflowResults.length > 0) {
-            stream.markdown(formatWorkflowSummary(workflowResults, latestStatuses));
+            stream.markdown(formatWorkflowSummary(workflowResults));
         }
-        return { metadata: { workflowResults, basePrompt: req.prompt, statuses: latestStatuses } };
+        return { metadata: { workflowResults, basePrompt: req.prompt } };
     });
     codex.followupProvider = {
         provideFollowups(result, _context, _token) {
@@ -273,6 +219,20 @@ function activate(ctx) {
     const coder = createParticipant("mix.coder", "Coder", getAgentInstructions);
     const reviewer = createParticipant("mix.reviewer", "Reviewer", getAgentInstructions);
     const qa = createParticipant("mix.qa", "QA", getAgentInstructions);
+    const runFullWorkflowCommand = vscode.commands.registerCommand("codex.runFullWorkflow", async () => {
+        const task = await vscode.window.showInputBox({
+            prompt: "Enter task for full workflow",
+            placeHolder: "What should the agents work on?"
+        });
+        if (!task || !task.trim())
+            return;
+        // Run orchestrator (builds prompts for all agents)
+        const results = await orchestrator.runWorkflow(task.trim());
+        // Build combined prompt from all results
+        const combinedPrompt = results.map(r => `${r.label}:\n${r.prompt}`).join("\n\n---\n\n");
+        // Hand off to Coder with combined prompt
+        await handoffToParticipant('mix.coder', 'Coder', combinedPrompt);
+    });
     const handoffCommand = vscode.commands.registerCommand("codex.handoff", async () => {
         const picks = AGENTS.map(agent => ({ label: agent.label, id: agent.id }));
         const pick = await vscode.window.showQuickPick(picks, { placeHolder: "Select a handoff target" });
@@ -280,7 +240,7 @@ function activate(ctx) {
             return;
         await handoffToParticipant(pick.id, pick.label);
     });
-    ctx.subscriptions.push(treeView, workflowStatusView, refreshCommand, handoffToArchitect, handoffToCoder, handoffToReviewer, handoffToQA, codex, architect, coder, reviewer, qa, handoffCommand);
+    ctx.subscriptions.push(treeView, refreshCommand, handoffToArchitect, handoffToCoder, handoffToReviewer, handoffToQA, codex, architect, coder, reviewer, qa, handoffCommand, runFullWorkflowCommand);
 }
 function createParticipant(id, label, getInstructions) {
     return vscode.chat.createChatParticipant(id, async (req, _chatCtx, stream, _token) => {
@@ -293,22 +253,6 @@ function createParticipant(id, label, getInstructions) {
         return { metadata: { basePrompt: req.prompt } };
     });
 }
-function buildPendingStatuses() {
-    return AGENTS.map(agent => ({
-        agentId: agent.id,
-        label: agent.label,
-        state: "pending"
-    }));
-}
-function iconForState(state) {
-    if (state === "running")
-        return new vscode.ThemeIcon("sync~spin");
-    if (state === "done")
-        return new vscode.ThemeIcon("check");
-    if (state === "cancelled")
-        return new vscode.ThemeIcon("circle-slash");
-    return new vscode.ThemeIcon("clock");
-}
 function formatAgentSection(result) {
     const lines = [
         `### ${result.label}`,
@@ -318,9 +262,8 @@ function formatAgentSection(result) {
     ];
     return lines.join("\n");
 }
-function formatWorkflowSummary(results, statuses) {
-    const statusLines = statuses.map(s => `- ${s.label}: ${s.state}`);
+function formatWorkflowSummary(results) {
     const summary = results.map(r => `- ${r.label}: handoff prompt prepared`).join("\n");
-    return ["---", "Workflow status", ...statusLines, "", "Prepared prompts", summary].join("\n");
+    return ["---", "Multi-agent workflow prepared", summary].join("\n");
 }
 //# sourceMappingURL=extension.js.map

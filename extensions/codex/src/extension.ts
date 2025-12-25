@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { basename } from "path";
-import { WorkflowAgentResult, WorkflowAgentState, WorkflowAgentStatus, WorkflowOrchestrator } from "./orchestrator/WorkflowOrchestrator";
+import { WorkflowAgentResult, WorkflowOrchestrator } from "./orchestrator/WorkflowOrchestrator";
 
 // Constants
 const FRONTMATTER_DELIMITER = '---';
@@ -63,44 +63,11 @@ class HandoffTreeProvider implements vscode.TreeDataProvider<HandoffTreeItem> {
   }
 }
 
-class WorkflowStatusItem extends vscode.TreeItem {
-  constructor(public readonly status: WorkflowAgentStatus) {
-    super(status.label, vscode.TreeItemCollapsibleState.None);
-    this.description = status.state;
-    this.iconPath = iconForState(status.state);
-  }
-}
-
-class WorkflowStatusProvider implements vscode.TreeDataProvider<WorkflowStatusItem> {
-  private _onDidChangeTreeData = new vscode.EventEmitter<WorkflowStatusItem | undefined | null | void>();
-  readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
-
-  constructor(private statuses: WorkflowAgentStatus[]) {}
-
-  setStatuses(statuses: WorkflowAgentStatus[]) {
-    this.statuses = statuses;
-    this._onDidChangeTreeData.fire();
-  }
-
-  getTreeItem(element: WorkflowStatusItem): vscode.TreeItem {
-    return element;
-  }
-
-  getChildren(_element?: WorkflowStatusItem): Thenable<WorkflowStatusItem[]> {
-    return Promise.resolve(this.statuses.map(status => new WorkflowStatusItem(status)));
-  }
-}
-
 export function activate(ctx: vscode.ExtensionContext) {
   // Register the TreeDataProvider
   const handoffProvider = new HandoffTreeProvider();
   const treeView = vscode.window.createTreeView('codexHandoffView', {
     treeDataProvider: handoffProvider,
-    showCollapseAll: false
-  });
-  const workflowStatusProvider = new WorkflowStatusProvider(buildPendingStatuses());
-  const workflowStatusView = vscode.window.createTreeView('codexWorkflowStatusView', {
-    treeDataProvider: workflowStatusProvider,
     showCollapseAll: false
   });
 
@@ -165,34 +132,23 @@ export function activate(ctx: vscode.ExtensionContext) {
   }
 
   // Helper function to send chat request to participant
-  async function handoffToParticipant(participantId: string, participantName: string) {
-    const editor = vscode.window.activeTextEditor;
-    let context = "";
-    const MAX_CONTEXT_LENGTH = 200;
-    
-    // Get selected text or active file context
-    if (editor && editor.selection && !editor.selection.isEmpty) {
-      context = editor.document.getText(editor.selection);
-    } else if (editor) {
-      // Get current file info using cross-platform path handling
-      const fileName = basename(editor.document.fileName);
-      context = `Current file: ${fileName}`;
+  async function handoffToParticipant(participantId: string, participantName: string, overridePrompt?: string) {
+    let instruction = overridePrompt;
+
+    // If no override, use selected text as context
+    if (!instruction) {
+      const editor = vscode.window.activeTextEditor;
+      const MAX_CONTEXT_LENGTH = 200;
+      
+      // Get selected text if available
+      if (editor && editor.selection && !editor.selection.isEmpty) {
+        let context = editor.document.getText(editor.selection);
+        // Truncate if too large
+        instruction = context.length > MAX_CONTEXT_LENGTH 
+          ? context.substring(0, MAX_CONTEXT_LENGTH)
+          : context;
+      }
     }
-
-    // Truncate context if too large
-    const displayContext = context.length > MAX_CONTEXT_LENGTH 
-      ? `${context.substring(0, MAX_CONTEXT_LENGTH)}...` 
-      : context;
-
-    // Prompt user for handoff instructions
-    const instruction = await vscode.window.showInputBox({
-      prompt: `Enter task for ${participantName}`,
-      placeHolder: 'What should this agent do?',
-      value: displayContext ? `Work on: ${displayContext}` : ''
-    });
-
-    // Validate instruction is not empty or whitespace
-    if (!instruction || !instruction.trim()) return;
 
     // Get agent instructions from .agent.md file
     const agentInstructions = await getAgentInstructions(participantName);
@@ -204,7 +160,10 @@ export function activate(ctx: vscode.ExtensionContext) {
       chatMessage += `${INSTRUCTION_SEPARATOR}${agentInstructions}${INSTRUCTION_SEPARATOR}`;
     }
     
-    chatMessage += instruction;
+    // Add context/instruction if available
+    if (instruction) {
+      chatMessage += instruction;
+    }
     
     try {
       // Use the command to open chat panel with the message
@@ -216,38 +175,20 @@ export function activate(ctx: vscode.ExtensionContext) {
     }
   }
   // Codex (coordinator)
-  const codex = vscode.chat.createChatParticipant("mix.codex", async (req, _chatCtx, stream, token) => {
+  const codex = vscode.chat.createChatParticipant("mix.codex", async (req, _chatCtx, stream, _token) => {
     stream.markdown(`Starting orchestrated workflow...\n`);
 
-    workflowStatusProvider.setStatuses(buildPendingStatuses());
-    let latestStatuses = buildPendingStatuses();
-
-    const workflowResults = await orchestrator.runWorkflow(req.prompt, {
-      token,
-      onUpdate: statuses => {
-        latestStatuses = statuses;
-        workflowStatusProvider.setStatuses(statuses);
-      }
-    });
-
-    if (token?.isCancellationRequested && workflowResults.length === 0) {
-      stream.markdown("Workflow cancelled before preparing any handoffs.");
-      return { metadata: { workflowResults, basePrompt: req.prompt, statuses: latestStatuses } };
-    }
-
-    if (token?.isCancellationRequested) {
-      stream.markdown("Workflow cancelled. Prepared prompts so far:\n");
-    }
+    const workflowResults = await orchestrator.runWorkflow(req.prompt);
 
     workflowResults.forEach(result => {
       stream.markdown(formatAgentSection(result));
     });
 
     if (workflowResults.length > 0) {
-      stream.markdown(formatWorkflowSummary(workflowResults, latestStatuses));
+      stream.markdown(formatWorkflowSummary(workflowResults));
     }
 
-    return { metadata: { workflowResults, basePrompt: req.prompt, statuses: latestStatuses } };
+    return { metadata: { workflowResults, basePrompt: req.prompt } };
   });
 
   codex.followupProvider = {
@@ -279,6 +220,24 @@ export function activate(ctx: vscode.ExtensionContext) {
   const reviewer = createParticipant("mix.reviewer", "Reviewer", getAgentInstructions);
   const qa = createParticipant("mix.qa", "QA", getAgentInstructions);
 
+  const runFullWorkflowCommand = vscode.commands.registerCommand("codex.runFullWorkflow", async () => {
+    const task = await vscode.window.showInputBox({
+      prompt: "Enter task for full workflow",
+      placeHolder: "What should the agents work on?"
+    });
+
+    if (!task || !task.trim()) return;
+
+    // Run orchestrator (builds prompts for all agents)
+    const results = await orchestrator.runWorkflow(task.trim());
+
+    // Build combined prompt from all results
+    const combinedPrompt = results.map(r => `${r.label}:\n${r.prompt}`).join("\n\n---\n\n");
+
+    // Hand off to Coder with combined prompt
+    await handoffToParticipant('mix.coder', 'Coder', combinedPrompt);
+  });
+
   const handoffCommand = vscode.commands.registerCommand("codex.handoff", async () => {
     const picks = AGENTS.map(agent => ({ label: agent.label, id: agent.id }));
 
@@ -290,7 +249,6 @@ export function activate(ctx: vscode.ExtensionContext) {
 
   ctx.subscriptions.push(
     treeView,
-    workflowStatusView,
     refreshCommand,
     handoffToArchitect,
     handoffToCoder,
@@ -301,7 +259,8 @@ export function activate(ctx: vscode.ExtensionContext) {
     coder, 
     reviewer, 
     qa, 
-    handoffCommand
+    handoffCommand,
+    runFullWorkflowCommand
   );
 }
 
@@ -323,21 +282,6 @@ function createParticipant(
   });
 }
 
-function buildPendingStatuses(): WorkflowAgentStatus[] {
-  return AGENTS.map(agent => ({
-    agentId: agent.id,
-    label: agent.label,
-    state: "pending" as WorkflowAgentState
-  }));
-}
-
-function iconForState(state: WorkflowAgentState): vscode.ThemeIcon {
-  if (state === "running") return new vscode.ThemeIcon("sync~spin");
-  if (state === "done") return new vscode.ThemeIcon("check");
-  if (state === "cancelled") return new vscode.ThemeIcon("circle-slash");
-  return new vscode.ThemeIcon("clock");
-}
-
 function formatAgentSection(result: WorkflowAgentResult): string {
   const lines = [
     `### ${result.label}`,
@@ -349,8 +293,7 @@ function formatAgentSection(result: WorkflowAgentResult): string {
   return lines.join("\n");
 }
 
-function formatWorkflowSummary(results: WorkflowAgentResult[], statuses: WorkflowAgentStatus[]): string {
-  const statusLines = statuses.map(s => `- ${s.label}: ${s.state}`);
+function formatWorkflowSummary(results: WorkflowAgentResult[]): string {
   const summary = results.map(r => `- ${r.label}: handoff prompt prepared`).join("\n");
-  return ["---", "Workflow status", ...statusLines, "", "Prepared prompts", summary].join("\n");
+  return ["---", "Multi-agent workflow prepared", summary].join("\n");
 }
