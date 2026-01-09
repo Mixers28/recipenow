@@ -6,7 +6,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRecipeList } from '@/hooks/useRecipes'
-import { StatusBadge } from '@/components/StatusBadge'
+import { RecipeStatusBadge } from '@/components/RecipeStatusBadge'
 
 const DEMO_USER_ID = '550e8400-e29b-41d4-a716-446655440000' // Demo user for testing
 
@@ -115,7 +115,7 @@ export default function LibraryPage() {
                   <h3 className="text-lg font-semibold text-gray-900 line-clamp-2">
                     {recipe.title || 'Untitled Recipe'}
                   </h3>
-                  <StatusBadge status={recipe.status} />
+                  <RecipeStatusBadge status={recipe.status} />
                 </div>
 
                 {/* Recipe info */}
