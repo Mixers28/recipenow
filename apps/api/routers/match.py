@@ -4,11 +4,11 @@ Recipe matching endpoints for finding cookable recipes based on pantry items.
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from db.database import get_db
+from db.session import get_session
 from services.matching import RecipeMatchingService
 
 router = APIRouter(prefix="/match", tags=["match"])

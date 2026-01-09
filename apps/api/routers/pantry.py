@@ -4,12 +4,12 @@ Pantry management endpoints for user ingredient tracking and recipe matching.
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from db.models import PantryItem as ORMPantryItem
-from db.database import get_db
+from db.session import get_session
 from repositories.pantry import PantryRepository
 from worker.jobs import _extract_ingredient_name
 
