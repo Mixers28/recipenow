@@ -76,7 +76,7 @@ class ShoppingListResponse(BaseModel):
 def match_recipe(
     recipe_id: str,
     user_id: str = Query(..., description="User UUID"),
-    db: Session = Session,
+    db: Session = Depends(get_session),
 ) -> RecipeMatchResponse:
     """
     Match a single recipe against user's pantry items.
@@ -134,7 +134,7 @@ def match_all_recipes(
     user_id: str = Query(..., description="User UUID"),
     status: Optional[str] = Query(None, description="Optional recipe status filter"),
     min_match: float = Query(0, ge=0, le=100, description="Minimum match percentage"),
-    db: Session = Session,
+    db: Session = Depends(get_session),
 ) -> RecipeMatchListResponse:
     """
     Match all user's recipes against pantry items.
@@ -194,7 +194,7 @@ def match_all_recipes(
 def generate_shopping_list(
     user_id: str = Query(..., description="User UUID"),
     recipe_ids: Optional[str] = Query(None, description="Comma-separated recipe IDs"),
-    db: Session = Session,
+    db: Session = Depends(get_session),
 ) -> ShoppingListResponse:
     """
     Generate a shopping list for missing ingredients.

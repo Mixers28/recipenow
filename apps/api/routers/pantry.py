@@ -77,7 +77,7 @@ def list_pantry(
     skip: int = Query(0, ge=0, description="Pagination skip"),
     limit: int = Query(100, ge=1, le=1000, description="Pagination limit"),
     query: Optional[str] = Query(None, description="Optional search query"),
-    db: Session = Session,
+    db: Session = Depends(get_session),
 ) -> PantryListResponse:
     """
     Get all pantry items for a user with optional search.
@@ -118,7 +118,7 @@ def list_pantry(
 def create_pantry_item(
     user_id: str = Query(..., description="User UUID"),
     item: PantryItemRequest = None,
-    db: Session = Session,
+    db: Session = Depends(get_session),
 ) -> PantryItemResponse:
     """
     Create a new pantry item.
@@ -159,7 +159,7 @@ def create_pantry_item(
 def get_pantry_item(
     item_id: str = Query(..., description="Pantry item UUID"),
     user_id: str = Query(..., description="User UUID"),
-    db: Session = Session,
+    db: Session = Depends(get_session),
 ) -> PantryItemResponse:
     """
     Get a specific pantry item.
@@ -191,7 +191,7 @@ def update_pantry_item(
     item_id: str,
     user_id: str = Query(..., description="User UUID"),
     item: PantryItemRequest = None,
-    db: Session = Session,
+    db: Session = Depends(get_session),
 ) -> PantryItemResponse:
     """
     Update a pantry item.
@@ -243,7 +243,7 @@ def update_pantry_item(
 def delete_pantry_item(
     item_id: str,
     user_id: str = Query(..., description="User UUID"),
-    db: Session = Session,
+    db: Session = Depends(get_session),
 ) -> dict:
     """
     Delete a pantry item.
