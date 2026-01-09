@@ -141,7 +141,7 @@ export default function MatchPage() {
               {shoppingList.missing_items.map((item, idx) => (
                 <div key={idx} className="flex justify-between items-start p-3 bg-white rounded-lg border border-purple-100">
                   <div className="flex-1">
-                    <p className="font-medium text-gray-900">{item.name_original}</p>
+                    <p className="font-medium text-gray-900">{item.original_text}</p>
                     <p className="text-sm text-gray-600">
                       {item.total_quantity > 0 && item.unit ? `${item.total_quantity} ${item.unit}` : ''}
                       {item.total_quantity > 0 && !item.unit ? `${item.total_quantity}` : ''}
