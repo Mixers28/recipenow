@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-from .routers import assets, match, pantry, recipes, shopping_list
+from routers import assets, match, pantry, recipes, shopping_list
 
 app = FastAPI(title="RecipeNow API", version="0.1.0")
 
