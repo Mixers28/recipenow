@@ -8,7 +8,7 @@ import { useParams } from 'next/navigation'
 import { useRecipe } from '@/hooks/useRecipes'
 import { ImageViewer } from '@/components/ImageViewer'
 import { RecipeForm } from '@/components/RecipeForm'
-import { SourceSpan } from '@/lib/api'
+import { SourceSpan, Recipe } from '@/lib/api'
 
 const DEMO_USER_ID = '550e8400-e29b-41d4-a716-446655440000' // Demo user for testing
 
@@ -33,6 +33,10 @@ export default function ReviewPage() {
 
   const handleFieldClick = (fieldPath: string) => {
     setHighlightedField(fieldPath)
+  }
+
+  const handleUpdate = async (data: Partial<Recipe>) => {
+    await update(data)
   }
 
   const handleVerify = async () => {
@@ -111,7 +115,7 @@ export default function ReviewPage() {
             recipe={recipe}
             fieldStatuses={fieldStatuses}
             spans={spans}
-            onUpdate={update}
+            onUpdate={handleUpdate}
             onVerify={handleVerify}
             loading={loading || verifyLoading}
             highlightedField={highlightedField}
