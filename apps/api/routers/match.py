@@ -4,7 +4,7 @@ Recipe matching endpoints for finding cookable recipes based on pantry items.
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, HTTPException, Query, Path, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -74,7 +74,7 @@ class ShoppingListResponse(BaseModel):
 
 @router.post("/recipe/{recipe_id}", response_model=RecipeMatchResponse)
 def match_recipe(
-    recipe_id: str,
+    recipe_id: str = Path(..., description="Recipe UUID"),
     user_id: str = Query(..., description="User UUID"),
     db: Session = Depends(get_session),
 ) -> RecipeMatchResponse:

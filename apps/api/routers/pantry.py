@@ -4,7 +4,7 @@ Pantry management endpoints for user ingredient tracking and recipe matching.
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, HTTPException, Query, Path, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -157,7 +157,7 @@ def create_pantry_item(
 
 @router.get("/items/{item_id}", response_model=PantryItemResponse)
 def get_pantry_item(
-    item_id: str = Query(..., description="Pantry item UUID"),
+    item_id: str = Path(..., description="Pantry item UUID"),
     user_id: str = Query(..., description="User UUID"),
     db: Session = Depends(get_session),
 ) -> PantryItemResponse:
@@ -188,7 +188,7 @@ def get_pantry_item(
 
 @router.patch("/items/{item_id}", response_model=PantryItemResponse)
 def update_pantry_item(
-    item_id: str,
+    item_id: str = Path(..., description="Pantry item UUID"),
     user_id: str = Query(..., description="User UUID"),
     item: PantryItemRequest = None,
     db: Session = Depends(get_session),
@@ -241,7 +241,7 @@ def update_pantry_item(
 
 @router.delete("/items/{item_id}")
 def delete_pantry_item(
-    item_id: str,
+    item_id: str = Path(..., description="Pantry item UUID"),
     user_id: str = Query(..., description="User UUID"),
     db: Session = Depends(get_session),
 ) -> dict:
