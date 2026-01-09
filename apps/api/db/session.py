@@ -12,15 +12,17 @@ from sqlalchemy.orm import Session, sessionmaker
 # Get database URL from environment
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://recipenow:recipenow@localhost:5432/recipenow")
 
-# Convert sync URL to async URL if needed
+# Convert to psycopg3 dialect for both sync and async
 if DATABASE_URL.startswith("postgresql://"):
+    SYNC_DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://")
     ASYNC_DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://")
 else:
+    SYNC_DATABASE_URL = DATABASE_URL
     ASYNC_DATABASE_URL = DATABASE_URL
 
 # Create sync engine (for background jobs and CLI)
 engine = create_engine(
-    DATABASE_URL,
+    SYNC_DATABASE_URL,
     echo=os.getenv("SQL_ECHO", "false").lower() == "true",
     pool_size=10,
     max_overflow=20,
