@@ -19,6 +19,10 @@ Rules:
 - No functional changes unless trivial and explicitly listed.
 - Focus on docs/readme consistency, naming, flow, formatting, and UX copy.
 
-Output:
-- List of polish changes
-- Any tiny functional changes (if absolutely necessary)
+Output contract (MANDATORY):
+Produce exactly these sections:
+
+# POLISH
+## Improvements
+## Nits
+## Approved? (Yes/No)

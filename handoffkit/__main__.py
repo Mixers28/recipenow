@@ -47,6 +47,17 @@ def tail_lines(text: str, max_lines: int) -> str:
         return text.strip()
     return "\n".join(lines[-max_lines:]).strip()
 
+def truncate_text(text: str, max_tokens: int) -> str:
+    if max_tokens <= 0:
+        return ""
+    limit = max_tokens * 4
+    if len(text) <= limit:
+        return text.strip()
+    cut = text.rfind("\n", 0, limit)
+    if cut == -1:
+        cut = limit
+    return (text[:cut].rstrip() + "\n…(truncated)…").strip()
+
 ROLE_CHOICES = ["architect", "coder", "reviewer", "qa_tester", "polish", "qa"]
 SESSION_ROLE_CHOICES = ["Architect", "Coder", "Reviewer", "QA"]
 
@@ -139,7 +150,9 @@ def load_role_prompt(project_root: Path, tool_root: Path, role: str) -> Tuple[st
     return read_text(template_path).strip(), None
 
 def read_baseline_section(project_root: Path, rel: str, max_tokens: int) -> Optional[Tuple[str,str]]:
-    p = (project_root / rel)
+    p = Path(rel)
+    if not p.is_absolute():
+        p = (project_root / p)
     if not p.exists():
         return None
     raw = read_text(p)
@@ -147,8 +160,7 @@ def read_baseline_section(project_root: Path, rel: str, max_tokens: int) -> Opti
     content = summary if summary else raw.strip()
     # token cap
     if approx_tokens(content) > max_tokens:
-        chars = max_tokens * 4
-        content = (content[:chars] + "\n…(truncated)…").strip()
+        content = truncate_text(content, max_tokens)
     title = rel
     return title, content
 
@@ -203,32 +215,35 @@ def build_context_pack(project_root: Path, cfg: Dict, instruction: str, selectio
     # Materialize baseline file sections (which are stored as rel paths above)
     materialized: List[Tuple[str, str, int]] = []
     for title, content, prio in sections:
-        if title in ("NOW", "PROJECT_CONTEXT") and isinstance(content, str) and content.endswith(".md") and "/" in content:
-            # It's a rel path
+        if title in ("NOW", "PROJECT_CONTEXT") and isinstance(content, str):
             max_tok = 450 if title == "NOW" else 650
             rb = read_baseline_section(project_root, content, max_tokens=max_tok)
             if rb:
                 t, c = rb
                 materialized.append((t, c, prio))
-            continue
+                continue
         materialized.append((title, content, prio))
 
     # Budgeting: allocate more to higher priority, but keep everything if possible.
     # We'll trim lower-priority sections first.
     def section_tokens(txt: str) -> int:
-        return approx_tokens(txt)
+        stripped = txt.strip()
+        if not stripped:
+            return 0
+        return approx_tokens(stripped)
 
     # Prepare pretty formatting
     out_parts = [header, ""]
-    # Reserve ~100 tokens for framing + markdown overhead
-    remaining = max(200, budget - 100)
+    # Reserve a small amount for framing + markdown overhead.
+    reserved = min(120, max(40, budget // 5))
+    remaining = max(0, budget - reserved)
 
     # Sort by priority desc for initial inclusion, but we'll render in a logical order later.
     # First, trim if needed.
     mats = materialized[:]
     total = sum(section_tokens(c) for _, c, _ in mats)
     if total > remaining:
-        # Trim in ascending priority order
+        # Trim in ascending priority order.
         mats_sorted = sorted(mats, key=lambda x: x[2])
         over = total - remaining
         trimmed = []
@@ -236,18 +251,55 @@ def build_context_pack(project_root: Path, cfg: Dict, instruction: str, selectio
             if over <= 0:
                 trimmed.append((title, content, prio))
                 continue
-            # Determine minimum tokens we keep for this section based on priority.
-            min_keep = 120 if prio >= 60 else 80 if prio >= 35 else 60
+            min_keep = 160 if prio >= 90 else 120 if prio >= 60 else 90 if prio >= 35 else 60
             tok = section_tokens(content)
             if tok <= min_keep:
                 trimmed.append((title, content, prio))
                 continue
-            # Reduce this section
-            reducible = tok - min_keep
-            cut = min(reducible, over)
+            cut = min(tok - min_keep, over)
             new_tok = tok - cut
-            chars = new_tok * 4
-            new_content = (content[:chars] + "\n…(truncated)…").strip()
+            new_content = truncate_text(content, new_tok)
+            trimmed.append((title, new_content, prio))
+            over -= cut
+        mats = trimmed
+
+    over = sum(section_tokens(c) for _, c, _ in mats) - remaining
+    if over > 0:
+        # If we still exceed the budget, trim below the soft minimum.
+        mats_sorted = sorted(mats, key=lambda x: x[2])
+        trimmed = []
+        for title, content, prio in mats_sorted:
+            if over <= 0:
+                trimmed.append((title, content, prio))
+                continue
+            hard_min = 80 if prio >= 90 else 60 if prio >= 60 else 40 if prio >= 35 else 20
+            tok = section_tokens(content)
+            if tok <= hard_min:
+                trimmed.append((title, content, prio))
+                continue
+            cut = min(tok - hard_min, over)
+            new_tok = tok - cut
+            new_content = truncate_text(content, new_tok)
+            trimmed.append((title, new_content, prio))
+            over -= cut
+        mats = trimmed
+
+    over = sum(section_tokens(c) for _, c, _ in mats) - remaining
+    if over > 0:
+        # Final pass: trim lowest priority sections further to guarantee the cap.
+        mats_sorted = sorted(mats, key=lambda x: x[2])
+        trimmed = []
+        for title, content, prio in mats_sorted:
+            if over <= 0:
+                trimmed.append((title, content, prio))
+                continue
+            tok = section_tokens(content)
+            if tok <= 0:
+                trimmed.append((title, content, prio))
+                continue
+            cut = min(tok, over)
+            new_tok = tok - cut
+            new_content = truncate_text(content, new_tok)
             trimmed.append((title, new_content, prio))
             over -= cut
         mats = trimmed
@@ -381,6 +433,7 @@ def print_session_end(project_root: Path, commit_enabled: bool) -> None:
     print("2) Let it update docs (SESSION_NOTES, NOW, summaries).")
     if commit_enabled:
         print("3) Come back here and press Enter to commit & push.")
+        print("   Note: --commit stages and commits all changes in the repo.")
     else:
         print("3) Come back here when the agent is done.")
     print("")
@@ -424,12 +477,11 @@ def print_session_end(project_root: Path, commit_enabled: bool) -> None:
     print("\n".join(lines))
 
 def commit_session(project_root: Path, remote: str) -> None:
-    run_git(["add", "docs/PROJECT_CONTEXT.md", "docs/NOW.md", "docs/SESSION_NOTES.md"], cwd=project_root)
     run_git(["add", "-A"], cwd=project_root)
 
     branch = run_git(["rev-parse", "--abbrev-ref", "HEAD"], cwd=project_root, capture=True).strip()
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-    commit_message = f"Session notes update - {timestamp}"
+    commit_message = f"Session update - {timestamp}"
 
     changes = run_git(["status", "--porcelain"], cwd=project_root, capture=True).strip()
     if changes:

@@ -87,10 +87,10 @@ Example `handoffkit.config.json`:
 
 ```json
 {
-  "token_budget": 2200,
+  "token_budget": 7000,
   "baseline_files": ["docs/PROJECT_CONTEXT.md", "docs/NOW.md"],
   "session_notes_file": "docs/SESSION_NOTES.md",
-  "session_notes_tail_lines": 80,
+  "session_notes_tail_lines": 120,
   "protocol_file": "docs/AGENT_SESSION_PROTOCOL.md",
   "protocol_tail_lines": 120
 }
@@ -100,5 +100,6 @@ Example `handoffkit.config.json`:
 
 - For best token efficiency, add summary blocks to your memory files:
   - `<!-- SUMMARY_START --> ... <!-- SUMMARY_END -->`
+  - Recommended in `docs/PROJECT_CONTEXT.md`, `docs/NOW.md`, and `docs/SESSION_NOTES.md`
 - The output ends with **SESSION END – INSTRUCTIONS** telling the agent to include “Session Updates”
   so you can easily update `NOW.md` and `SESSION_NOTES.md` per your protocol.

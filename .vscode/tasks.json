@@ -4,8 +4,10 @@
     {
       "label": "Start Session (Agent - Coder)",
       "type": "shell",
-      "command": "handoffkit",
+      "command": "python",
       "args": [
+        "-m",
+        "handoffkit",
         "session",
         "start",
         "--agent-role",
@@ -17,8 +19,10 @@
     {
       "label": "Start Session (Agent - Architect)",
       "type": "shell",
-      "command": "handoffkit",
+      "command": "python",
       "args": [
+        "-m",
+        "handoffkit",
         "session",
         "start",
         "--agent-role",
@@ -30,8 +34,10 @@
     {
       "label": "Start Session (Agent - Reviewer)",
       "type": "shell",
-      "command": "handoffkit",
+      "command": "python",
       "args": [
+        "-m",
+        "handoffkit",
         "session",
         "start",
         "--agent-role",
@@ -43,8 +49,10 @@
     {
       "label": "Start Session (Agent - QA)",
       "type": "shell",
-      "command": "handoffkit",
+      "command": "python",
       "args": [
+        "-m",
+        "handoffkit",
         "session",
         "start",
         "--agent-role",
@@ -56,8 +64,10 @@
     {
       "label": "End Session (Agent + Commit)",
       "type": "shell",
-      "command": "handoffkit",
+      "command": "python",
       "args": [
+        "-m",
+        "handoffkit",
         "session",
         "end",
         "--commit"

@@ -23,9 +23,13 @@ Rules:
 - Keep changes small and focused.
 - Prefer adding/adjusting tests when practical.
 - If blocked, ask narrowly and list exactly what is needed.
-- Use Context7 for any library/framework specifics. use context7.
 
-Output:
-- Unified diff
-- Commands to run
-- Brief notes (assumptions, risks, follow-ups)
+Output contract (MANDATORY):
+Produce exactly these sections:
+
+# IMPLEMENTATION
+## Plan (short)
+## CHANGED_FILES
+## PATCH (unified diff preferred)
+## How to run (commands)
+## Notes / Assumptions

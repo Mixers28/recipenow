@@ -23,7 +23,11 @@ Rules:
 - Provide a test plan (unit/integration/manual) and edge cases.
 - If possible, include "minimum tests to add" (test names and files).
 
-Output:
-- Test plan (unit/integration/manual)
-- Edge cases + how to reproduce
-- Minimum tests to add (if applicable)
+Output contract (MANDATORY):
+Produce exactly these sections:
+
+# QA
+## Test plan (unit/integration/manual)
+## Edge cases
+## Repro steps (if issues)
+## Minimal tests to add (names)

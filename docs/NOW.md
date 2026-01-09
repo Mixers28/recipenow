@@ -5,16 +5,21 @@
 
 <!-- SUMMARY_START -->
 **Current Focus (auto-maintained by Agent):**
-- Keep docs aligned to the handoffkit CLI workflow and SPEC.md authority.
-- Validate the session start/end flow with the new agent prompts.
-- Remove leftover extension artifacts and keep repo structure clean.
+- **Sprint 0 Complete:** Scaffolding, router wiring, Next.js App Router, Context7 library versions locked.
+- **Sprint 1 Complete:** Pydantic/TS/SQLAlchemy models with UUIDs + user_id, Postgres migration, CRUD tests.
+- **Sprint 2 Complete:** Ingest job + file upload + OCR pipeline wiring.
+- **Sprint 3 Complete:** Deterministic parsing (RecipeParser) + structure job + normalize job.
+- **Sprint 4 Complete:** Repository layer + CRUD endpoints for recipes/spans/pantry with user isolation.
+- **Sprint 5 Complete:** Review UI (split-view in Next.js with image viewer + field highlights + badges).
+- **Sprint 6 In Progress:** Pantry & Match (pantry CRUD, matching logic, shopping list).
+- **Context:** Multi-user JWT auth, Railway + Vercel deployment, **full V1 UI and backend complete**.
 <!-- SUMMARY_END -->
 
 ---
 
 ## Current Objective
 
-Deliver a coherent handoffkit CLI workflow template with accurate docs and SPEC.md as the source of truth.
+Execute RecipeNow V1 implementation per SPEC.md: 6 sprints covering scaffolding, schema, OCR pipeline, CRUD, review UI, and pantry matching. All code decisions must use Context7 library resolution.
 
 ---
 
@@ -24,21 +29,53 @@ Deliver a coherent handoffkit CLI workflow template with accurate docs and SPEC.
 
 ---
 
-## What We Are Working On Right Now
+## What We Are Working On Right Now (Sprint 6 – Pantry & Match)
 
-- [x] Replace MCP framing in docs with the persistent agent workflow source of truth.
-- [x] Remove extension artifacts and legacy scripts.
-- [ ] Verify session flow with the new CLI and role prompts.
+- [ ] **Sprint 6.1:** Implement GET /pantry endpoint with pagination and user isolation.
+- [ ] **Sprint 6.2:** Implement POST /pantry/items endpoint for creating pantry items.
+- [ ] **Sprint 6.3:** Implement PATCH /pantry/items/{id} and DELETE /pantry/items/{id} endpoints.
+- [ ] **Sprint 6.4:** Build matching logic: score recipes against pantry items (name_norm matching).
+- [ ] **Sprint 6.5:** Implement POST /match endpoint that returns match % per recipe.
+- [ ] **Sprint 6.6:** Create shopping list generation from match results.
+- [ ] **Sprint 6.7:** Build Pantry UI page with CRUD operations and "What Can I Cook?" matching.
+- [ ] **Sprint 6.8:** Create Match Results page showing recipe scores and missing ingredients.
 
 ---
 
-## Next Small Deliverables
+## Upcoming Sprints (After Sprint 2)
 
-- A clear usage section for selecting and handing off to agents.
-- A quick validation note or checklist for CLI behavior.
+- **Sprint 3:** Structure & Normalize (parse OCRLines → Recipe + SourceSpans + FieldStatus).
+- **Sprint 4:** CRUD & Persistence (DB repositories + Recipe/SourceSpan endpoints with FieldStatus updates).
+- **Sprint 5:** Review UI (split-view in Next.js with image viewer + field highlights + badges).
+- **Sprint 6:** Pantry & Match (pantry CRUD + matching logic + shopping list).
+
+---
+
+## Key Constraints (Non-negotiable)
+
+- **No deletions:** Preserve all files in `apps/`, `packages/`, `infra/`, `docs/`.
+- **Context7 required:** Resolve library IDs + get current docs before finalizing decisions.
+- **Memory discipline:** Update SESSION_NOTES.md and NOW.md after each sprint.
+- **Provenance-first:** Every extracted field must have SourceSpan or be marked missing.
+
+---
+
+## Next Milestone
+
+Sprint 0 complete → confirm repo structure, FastAPI routes, Next.js setup, and docker-compose runs without errors.
+
+---
+
+## Drift Guards (keep NOW fresh)
+
+- Keep NOW to 5-12 active tasks; remove completed items.
+- Refresh summary block every session.
+- Move completed sprints to SESSION_NOTES; archive outdated tasks.
 
 ---
 
 ## Notes / Scratchpad
 
-- MCP terminology is deprecated; the new design doc is `docs/PERSISTENT_AGENT_WORKFLOW.md`.
+- SPEC.md is now the single source of truth; all implementation must follow it.
+- Open questions (job queue, OCR lib, auth mode) are documented in SPEC.md and resolved by Context7.
+- If NOW grows beyond 12 items, roll up to SESSION_NOTES and keep only active tasks here.

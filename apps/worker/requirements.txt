@@ -1,0 +1,11 @@
+# Shared with API
+arq==0.26.3
+redis==5.0.1
+psycopg[binary,pool]==3.3.2
+sqlalchemy==2.0.25
+pydantic==2.5.3
+pydantic-settings==2.1.0
+python-dotenv==1.0.0
+
+# OCR
+paddleocr[all]==3.3.2

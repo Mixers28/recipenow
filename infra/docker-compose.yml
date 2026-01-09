@@ -1,0 +1,107 @@
+version: "3.9"
+
+services:
+  # PostgreSQL Database (Context7: v16 stable)
+  postgres:
+    image: postgres:16-alpine
+    container_name: recipenow-postgres
+    environment:
+      POSTGRES_USER: recipenow
+      POSTGRES_PASSWORD: recipenow
+      POSTGRES_DB: recipenow
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U recipenow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis for ARQ job queue (Context7: v7 stable)
+  redis:
+    image: redis:7-alpine
+    container_name: recipenow-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # FastAPI Backend (Context7: v0.128.0)
+  api:
+    build:
+      context: ../
+      dockerfile: apps/api/Dockerfile
+    container_name: recipenow-api
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://recipenow:recipenow@postgres:5432/recipenow
+      REDIS_URL: redis://redis:6379
+      PYTHONUNBUFFERED: 1
+    volumes:
+      - ../apps/api:/app
+      - ../packages:/packages
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+  # ARQ Background Worker (Context7: v0.26.3)
+  worker:
+    build:
+      context: ../
+      dockerfile: apps/worker/Dockerfile
+    container_name: recipenow-worker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://recipenow:recipenow@postgres:5432/recipenow
+      REDIS_URL: redis://redis:6379
+      PYTHONUNBUFFERED: 1
+    volumes:
+      - ../apps/worker:/app
+      - ../packages:/packages
+    command: arq worker.WorkerSettings
+
+  # Next.js Frontend (Context7: v16.1.0)
+  web:
+    build:
+      context: ../
+      dockerfile: apps/web/Dockerfile
+    container_name: recipenow-web
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    depends_on:
+      - api
+    volumes:
+      - ../apps/web:/app
+
+  # MinIO Object Storage (optional, for asset storage)
+  minio:
+    image: minio/minio:latest
+    container_name: recipenow-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minio123
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+
+volumes:
+  postgres_data:
+  minio_data:
