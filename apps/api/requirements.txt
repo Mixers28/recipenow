@@ -14,7 +14,7 @@ redis==5.0.1
 paddleocr[all]==3.3.2
 
 # Data Validation
-pydantic==2.5.3
+pydantic==2.7.0
 pydantic-settings==2.1.0
 
 # Utilities
