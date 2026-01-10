@@ -8,6 +8,7 @@ import { useParams } from 'next/navigation'
 import { useRecipe } from '@/hooks/useRecipes'
 import { ImageViewer } from '@/components/ImageViewer'
 import { RecipeForm } from '@/components/RecipeForm'
+import { Tabs } from '@/components/Tabs'
 import { SourceSpan, Recipe } from '@/lib/api'
 
 const DEMO_USER_ID = '550e8400-e29b-41d4-a716-446655440000' // Demo user for testing
@@ -97,8 +98,8 @@ export default function ReviewPage() {
         </div>
       )}
 
-      {/* Split View Container */}
-      <div className="grid grid-cols-2 gap-6 h-screen -mb-8">
+      {/* Desktop: Split View */}
+      <div className="hidden lg:grid grid-cols-2 gap-6 h-screen -mb-8">
         {/* Left: Image Viewer */}
         <div className="overflow-hidden rounded-lg">
           <ImageViewer
@@ -122,6 +123,51 @@ export default function ReviewPage() {
             onFieldClick={handleFieldClick}
           />
         </div>
+      </div>
+
+      {/* Mobile: Tabbed View */}
+      <div className="lg:hidden h-[calc(100vh-200px)]">
+        <Tabs
+          tabs={[
+            {
+              id: 'image',
+              label: '🖼️ Image',
+              content: (
+                <div className="h-full overflow-hidden">
+                  <ImageViewer
+                    imageUrl={imageUrl}
+                    spans={spans}
+                    highlightedFieldPath={highlightedField}
+                    onBboxClick={(bbox, fieldPath) => {
+                      handleBboxClick(bbox, fieldPath)
+                      // Auto-switch to form tab when bbox clicked
+                      // This would require exposing tab switching via context
+                    }}
+                  />
+                </div>
+              ),
+            },
+            {
+              id: 'form',
+              label: '📝 Form',
+              content: (
+                <div className="h-full overflow-y-auto">
+                  <RecipeForm
+                    recipe={recipe}
+                    fieldStatuses={fieldStatuses}
+                    spans={spans}
+                    onUpdate={handleUpdate}
+                    onVerify={handleVerify}
+                    loading={loading || verifyLoading}
+                    highlightedField={highlightedField}
+                    onFieldClick={handleFieldClick}
+                  />
+                </div>
+              ),
+            },
+          ]}
+          defaultTab="image"
+        />
       </div>
 
       {/* Info Section */}
