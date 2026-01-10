@@ -245,15 +245,24 @@ def debug_asset(asset_id: str, db: Session = Depends(get_session)):
     try:
         from db.models import Recipe
 
+        # Validate UUID format
+        try:
+            asset_uuid = UUID(asset_id)
+        except ValueError as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid asset_id format. Expected UUID, got '{asset_id}'. Error: {str(e)}"
+            )
+
         repo = AssetRepository(db)
-        asset = repo.get_by_id(UUID(asset_id))
+        asset = repo.get_by_id(asset_uuid)
         if not asset:
             raise HTTPException(status_code=404, detail="Asset not found")
 
         # Get OCRLines
         ocr_lines = (
             db.query(OCRLine)
-            .filter_by(asset_id=UUID(asset_id))
+            .filter_by(asset_id=asset_uuid)
             .order_by(OCRLine.page, OCRLine.id)
             .all()
         )
