@@ -20,7 +20,6 @@ logger = get_logger(__name__)
 app = FastAPI(
     title=settings.API_TITLE,
     version=settings.API_VERSION,
-    redirect_slashes=False,
 )
 
 # Initialize database schema on startup
