@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from db.session import get_session
 from repositories.assets import AssetRepository
+from repositories.recipes import RecipeRepository
 from services.ocr import OCRLineData
 from services.storage import compute_sha256, get_storage_backend
 
@@ -22,6 +23,7 @@ class AssetUploadResponse(BaseModel):
     """Response for asset upload."""
 
     asset_id: str
+    recipe_id: str
     storage_path: str
     sha256: str
     job_id: Optional[str] = None
@@ -83,8 +85,16 @@ async def upload_asset(
         existing = repo.get_by_sha256(UUID(user_id), sha256)
         if existing:
             logger.info(f"File already uploaded: {existing.id}")
+            # Create a new recipe for the duplicate asset
+            recipe_repo = RecipeRepository(db)
+            recipe = recipe_repo.create(
+                user_id=UUID(user_id),
+                title=f"Recipe from {file.filename}" if file.filename else "New Recipe",
+                status="draft",
+            )
             return AssetUploadResponse(
                 asset_id=str(existing.id),
+                recipe_id=str(recipe.id),
                 storage_path=existing.storage_path,
                 sha256=existing.sha256,
                 source_label=existing.source_label,
@@ -105,6 +115,15 @@ async def upload_asset(
             source_label=source_label,
         )
 
+        # Create initial recipe for this asset
+        recipe_repo = RecipeRepository(db)
+        recipe = recipe_repo.create(
+            user_id=UUID(user_id),
+            title=f"Recipe from {file.filename}" if file.filename else "New Recipe",
+            status="draft",
+        )
+        logger.info(f"Recipe created: {recipe.id} for asset: {asset.id}")
+
         # Enqueue ingest job (OCR)
         try:
             from arq import create_pool
@@ -120,6 +139,7 @@ async def upload_asset(
 
         return AssetUploadResponse(
             asset_id=str(asset.id),
+            recipe_id=str(recipe.id),
             storage_path=asset.storage_path,
             sha256=asset.sha256,
             job_id=job_id,

@@ -206,6 +206,7 @@ export async function listFieldStatuses(userId: string, recipeId: string): Promi
 // Asset endpoints
 export interface AssetUploadResponse {
   asset_id: string
+  recipe_id: string
   storage_path: string
   sha256: string
   job_id?: string
