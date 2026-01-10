@@ -30,13 +30,14 @@ export default function LibraryPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold text-gray-900">📚 Recipe Library</h1>
+      <div className="flex justify-between items-center gap-4">
+        <h1 className="text-2xl md:text-3xl font-bold text-gray-900">📚 Recipe Library</h1>
         <Link
           href="/upload"
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          className="px-3 py-2 md:px-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm md:text-base min-h-touch flex items-center whitespace-nowrap"
         >
-          ⬆️ Upload Recipe
+          <span className="hidden md:inline">⬆️ Upload Recipe</span>
+          <span className="md:hidden">⬆️</span>
         </Link>
       </div>
 

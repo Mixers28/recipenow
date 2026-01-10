@@ -2,8 +2,8 @@ export default function Home() {
   return (
     <div className="space-y-8">
       <section>
-        <h2 className="text-3xl font-bold text-gray-900 mb-4">Welcome to RecipeNow</h2>
-        <p className="text-lg text-gray-600 mb-6">
+        <h2 className="text-2xl md:text-3xl font-bold text-gray-900 mb-4">Welcome to RecipeNow</h2>
+        <p className="text-base md:text-lg text-gray-600 mb-6">
           Convert your recipe photos and screenshots into structured, searchable recipes with complete provenance tracking.
         </p>
       </section>

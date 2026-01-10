@@ -92,7 +92,7 @@ export default function MatchPage() {
 
       {/* Stats */}
       {matches.length > 0 && (
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="bg-white rounded-lg shadow p-4">
             <p className="text-sm text-gray-600">Total Recipes</p>
             <p className="text-2xl font-bold text-gray-900">{matches.length}</p>

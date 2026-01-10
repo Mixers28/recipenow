@@ -162,7 +162,7 @@ export default function PantryPage() {
           {/* Add new item */}
           <div className="pt-4 border-t space-y-3">
             <h3 className="text-sm font-semibold text-gray-700">Add New Item</h3>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <input
                 type="text"
                 value={newItem}
