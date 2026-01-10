@@ -6,15 +6,7 @@
 import { useRouter } from 'next/navigation'
 import { useRef, useState } from 'react'
 import { useUser } from '@auth0/nextjs-auth0/client'
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-
-interface UploadResponse {
-  asset_id: string
-  storage_path: string
-  sha256: string
-  job_id?: string
-}
+import { uploadAsset } from '@/lib/api'
 
 export default function UploadPage() {
   const router = useRouter()
@@ -69,26 +61,9 @@ export default function UploadPage() {
     setMessage(null)
 
     try {
-      const formData = new FormData()
-      formData.append('file', selectedFile)
-      formData.append('user_id', user.sub)
-
       const sourceLabel = (e.currentTarget.elements.namedItem('source_label') as HTMLInputElement)?.value
-      if (sourceLabel) {
-        formData.append('source_label', sourceLabel)
-      }
 
-      const response = await fetch(`${API_BASE}/assets/upload`, {
-        method: 'POST',
-        body: formData,
-      })
-
-      if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.detail || `Upload failed: ${response.status}`)
-      }
-
-      const data: UploadResponse = await response.json()
+      const data = await uploadAsset(selectedFile, user.sub, sourceLabel)
       setMessage({ type: 'success', text: 'Upload successful! Redirecting to review...' })
 
       // Redirect to review page after 1 second

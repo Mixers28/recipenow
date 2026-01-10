@@ -203,7 +203,35 @@ export async function listFieldStatuses(userId: string, recipeId: string): Promi
   return res.json()
 }
 
-// Asset endpoints (for image retrieval)
+// Asset endpoints
+export interface AssetUploadResponse {
+  asset_id: string
+  storage_path: string
+  sha256: string
+  job_id?: string
+}
+
+export async function uploadAsset(
+  file: File,
+  userId: string,
+  sourceLabel?: string
+): Promise<AssetUploadResponse> {
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('user_id', userId)
+  if (sourceLabel) {
+    formData.append('source_label', sourceLabel)
+  }
+
+  const res = await fetch(`${API_BASE}/assets/upload`, {
+    method: 'POST',
+    body: formData,
+  })
+
+  if (!res.ok) throw new Error(`Failed to upload asset: ${res.statusText}`)
+  return res.json()
+}
+
 export async function getAsset(assetId: string): Promise<Blob> {
   const res = await fetch(`${API_BASE}/assets/${assetId}`)
 
