@@ -51,7 +51,7 @@ export function RecipeForm({
         const fieldName = rest.split('].')[1]
 
         if (!newRecipe[arrayName as keyof Recipe]) {
-          newRecipe[arrayName as keyof Recipe] = []
+          newRecipe[arrayName as keyof Recipe] = [] as any
         }
 
         const arr = newRecipe[arrayName as keyof Recipe] as any[]
