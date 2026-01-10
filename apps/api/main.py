@@ -18,6 +18,7 @@ logger = get_logger(__name__)
 app = FastAPI(
     title=settings.API_TITLE,
     version=settings.API_VERSION,
+    redirect_slashes=False,
 )
 
 # CORS configuration - Allow requests from Vercel frontend and local development
