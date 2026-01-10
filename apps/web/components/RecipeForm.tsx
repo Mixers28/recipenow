@@ -242,12 +242,12 @@ export function RecipeForm({
         />
       </div>
 
-      {/* Actions */}
-      <div className="flex gap-3 pt-4 border-t">
+      {/* Actions - sticky on mobile */}
+      <div className="sticky bottom-0 bg-white pt-4 pb-2 border-t flex gap-3 z-20 lg:relative lg:pt-4 lg:pb-0">
         <button
           onClick={handleSave}
           disabled={!hasChanges || loading || isSaving}
-          className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 transition-colors font-medium"
+          className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 transition-colors font-medium min-h-touch flex items-center justify-center"
         >
           {isSaving ? '💾 Saving...' : '💾 Save Changes'}
         </button>
@@ -258,7 +258,7 @@ export function RecipeForm({
           title={
             isVerifyDisabled ? 'Recipe must have: title, at least 1 ingredient, at least 1 step' : ''
           }
-          className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 transition-colors font-medium"
+          className="flex-1 px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 transition-colors font-medium min-h-touch flex items-center justify-center"
         >
           ✓ Verify Recipe
         </button>

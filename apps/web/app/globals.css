@@ -17,3 +17,74 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+/* Mobile-specific polish */
+
+/* Touch feedback on interactive elements */
+@media (hover: none) and (pointer: coarse) {
+  button:active,
+  a:active {
+    opacity: 0.7;
+    transform: scale(0.98);
+  }
+
+  /* Prevent text selection on long press */
+  button,
+  a {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+}
+
+/* Safe area insets for notched devices */
+@supports (padding: env(safe-area-inset-bottom)) {
+  body {
+    padding-top: env(safe-area-inset-top);
+  }
+
+  .bottom-nav {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* Prevent overscroll bounce on mobile */
+body {
+  overscroll-behavior-y: contain;
+  overscroll-behavior-x: none;
+}
+
+/* Better font rendering on mobile */
+@media screen and (max-width: 768px) {
+  body {
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+  }
+}
+
+/* Smooth transitions on mobile */
+* {
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+/* Prevent flickering during touch */
+input,
+textarea,
+select {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* High contrast for accessibility */
+:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+/* Better tap target feedback */
+@media (hover: none) and (pointer: coarse) {
+  input:focus,
+  textarea:focus,
+  select:focus {
+    background-color: #f0f9ff;
+  }
+}
