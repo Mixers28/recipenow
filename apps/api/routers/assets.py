@@ -236,6 +236,68 @@ def get_asset_metadata(asset_id: str, db: Session = Depends(get_session)) -> Ass
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/{asset_id}/debug")
+def debug_asset(asset_id: str, db: Session = Depends(get_session)):
+    """
+    Debug endpoint to inspect OCRLines and recipe data for an asset.
+    Shows what was extracted during OCR and parsing.
+    """
+    try:
+        from db.models import Recipe
+
+        repo = AssetRepository(db)
+        asset = repo.get_by_id(UUID(asset_id))
+        if not asset:
+            raise HTTPException(status_code=404, detail="Asset not found")
+
+        # Get OCRLines
+        ocr_lines = (
+            db.query(OCRLine)
+            .filter_by(asset_id=UUID(asset_id))
+            .order_by(OCRLine.page, OCRLine.id)
+            .all()
+        )
+
+        # Get recipe for this asset
+        recipe = (
+            db.query(Recipe)
+            .filter_by(user_id=asset.user_id)
+            .order_by(Recipe.created_at.desc())
+            .first()
+        )
+
+        return {
+            "asset_id": str(asset.id),
+            "asset_type": asset.type,
+            "ocr_line_count": len(ocr_lines),
+            "ocr_lines": [
+                {
+                    "page": line.page,
+                    "text": line.text[:100],  # First 100 chars
+                    "confidence": line.confidence,
+                    "bbox": line.bbox,
+                }
+                for line in ocr_lines[:20]  # First 20 lines
+            ],
+            "recipe": {
+                "id": str(recipe.id) if recipe else None,
+                "title": recipe.title if recipe else None,
+                "servings": recipe.servings if recipe else None,
+                "ingredients_count": len(recipe.ingredients) if recipe else 0,
+                "ingredients": recipe.ingredients[:3] if recipe and recipe.ingredients else [],
+                "steps_count": len(recipe.steps) if recipe else 0,
+                "steps": recipe.steps[:2] if recipe and recipe.steps else [],
+            },
+            "message": "Debug info - use this to verify OCR extraction and parsing worked"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Debug failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/{asset_id}/ocr", response_model=JobKickResponse)
 async def run_ocr(asset_id: str, use_gpu: bool = False) -> JobKickResponse:
     """
