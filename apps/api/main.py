@@ -10,6 +10,8 @@ from starlette.middleware.cors import CORSMiddleware
 from config import settings
 from logging_config import setup_logging, get_logger
 from routers import assets, match, pantry, recipes, shopping_list
+from db.models import Base
+from db.session import engine
 
 # Setup logging on startup
 setup_logging(log_level=settings.LOG_LEVEL)
@@ -20,6 +22,11 @@ app = FastAPI(
     version=settings.API_VERSION,
     redirect_slashes=False,
 )
+
+# Initialize database schema on startup
+logger.info("Initializing database schema...")
+Base.metadata.create_all(bind=engine)
+logger.info("✅ Database schema initialized")
 
 # CORS configuration - Allow requests from Vercel frontend and local development
 logger.info(f"Enabling CORS for origins: {settings.allowed_origins_list}")
