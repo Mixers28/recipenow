@@ -3,7 +3,7 @@ Recipe repository for CRUD operations with user isolation.
 """
 from datetime import datetime
 from typing import List, Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy.orm import Session
 
@@ -45,6 +45,7 @@ class RecipeRepository:
             Created Recipe object
         """
         recipe = Recipe(
+            id=uuid4(),
             user_id=user_id,
             title=title,
             servings=servings,
