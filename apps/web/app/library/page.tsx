@@ -7,6 +7,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRecipeList } from '@/hooks/useRecipes'
 import { RecipeStatusBadge } from '@/components/RecipeStatusBadge'
+import { PullToRefresh } from '@/components/PullToRefresh'
 
 const DEMO_USER_ID = '550e8400-e29b-41d4-a716-446655440000' // Demo user for testing
 
@@ -55,7 +56,7 @@ export default function LibraryPage() {
               value={searchQuery}
               onChange={handleSearch}
               placeholder="e.g., Pasta Carbonara..."
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent min-h-touch"
             />
           </div>
 
@@ -68,7 +69,7 @@ export default function LibraryPage() {
               id="status"
               value={statusFilter}
               onChange={handleStatusFilter}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent min-h-touch"
             >
               <option value="">All Statuses</option>
               <option value="draft">Draft</option>
@@ -91,73 +92,75 @@ export default function LibraryPage() {
         </div>
       )}
 
-      {/* Recipes Grid */}
-      {recipes.length === 0 ? (
-        <div className="bg-white rounded-lg shadow p-12 text-center">
-          <p className="text-gray-600 mb-4">No recipes found</p>
-          <Link
-            href="/upload"
-            className="inline-block px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-          >
-            Upload your first recipe
-          </Link>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {recipes.map((recipe) => (
+      {/* Recipes Grid with Pull-to-Refresh */}
+      <PullToRefresh onRefresh={() => fetch({ query: searchQuery, status: statusFilter || undefined })} className="h-96">
+        {recipes.length === 0 ? (
+          <div className="bg-white rounded-lg shadow p-12 text-center">
+            <p className="text-gray-600 mb-4">No recipes found</p>
             <Link
-              key={recipe.id}
-              href={`/review/${recipe.id}`}
-              className="bg-white rounded-lg shadow hover:shadow-lg transition-shadow overflow-hidden"
+              href="/upload"
+              className="inline-block px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 min-h-touch"
             >
-              {/* Recipe card */}
-              <div className="p-6">
-                <div className="flex justify-between items-start mb-2">
-                  <h3 className="text-lg font-semibold text-gray-900 line-clamp-2">
-                    {recipe.title || 'Untitled Recipe'}
-                  </h3>
-                  <RecipeStatusBadge status={recipe.status} />
-                </div>
+              Upload your first recipe
+            </Link>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {recipes.map((recipe) => (
+              <Link
+                key={recipe.id}
+                href={`/review/${recipe.id}`}
+                className="bg-white rounded-lg shadow hover:shadow-lg transition-shadow overflow-hidden"
+              >
+                {/* Recipe card */}
+                <div className="p-6">
+                  <div className="flex justify-between items-start mb-2">
+                    <h3 className="text-lg font-semibold text-gray-900 line-clamp-2">
+                      {recipe.title || 'Untitled Recipe'}
+                    </h3>
+                    <RecipeStatusBadge status={recipe.status} />
+                  </div>
 
-                {/* Recipe info */}
-                <div className="space-y-2 text-sm text-gray-600 mb-4">
-                  {recipe.servings && <p>🍽️ Servings: {recipe.servings}</p>}
-                  {recipe.ingredients && recipe.ingredients.length > 0 && (
-                    <p>📋 {recipe.ingredients.length} ingredients</p>
-                  )}
-                  {recipe.steps && recipe.steps.length > 0 && (
-                    <p>👣 {recipe.steps.length} steps</p>
-                  )}
-                </div>
-
-                {/* Tags */}
-                {recipe.tags && recipe.tags.length > 0 && (
-                  <div className="flex flex-wrap gap-2">
-                    {recipe.tags.slice(0, 3).map((tag) => (
-                      <span
-                        key={tag}
-                        className="inline-block px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded"
-                      >
-                        {tag}
-                      </span>
-                    ))}
-                    {recipe.tags.length > 3 && (
-                      <span className="inline-block px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded">
-                        +{recipe.tags.length - 3} more
-                      </span>
+                  {/* Recipe info */}
+                  <div className="space-y-2 text-sm text-gray-600 mb-4">
+                    {recipe.servings && <p>🍽️ Servings: {recipe.servings}</p>}
+                    {recipe.ingredients && recipe.ingredients.length > 0 && (
+                      <p>📋 {recipe.ingredients.length} ingredients</p>
+                    )}
+                    {recipe.steps && recipe.steps.length > 0 && (
+                      <p>👣 {recipe.steps.length} steps</p>
                     )}
                   </div>
-                )}
 
-                {/* Date */}
-                <div className="mt-4 text-xs text-gray-500">
-                  {recipe.created_at && new Date(recipe.created_at).toLocaleDateString()}
+                  {/* Tags */}
+                  {recipe.tags && recipe.tags.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {recipe.tags.slice(0, 3).map((tag) => (
+                        <span
+                          key={tag}
+                          className="inline-block px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                      {recipe.tags.length > 3 && (
+                        <span className="inline-block px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded">
+                          +{recipe.tags.length - 3} more
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Date */}
+                  <div className="mt-4 text-xs text-gray-500">
+                    {recipe.created_at && new Date(recipe.created_at).toLocaleDateString()}
+                  </div>
                 </div>
-              </div>
-            </Link>
-          ))}
-        </div>
-      )}
+              </Link>
+            ))}
+          </div>
+        )}
+      </PullToRefresh>
     </div>
   )
 }

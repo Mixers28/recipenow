@@ -12,6 +12,7 @@ import {
   ShoppingListResponse,
   IngredientMatch,
 } from '@/lib/api'
+import { PullToRefresh } from '@/components/PullToRefresh'
 
 const DEMO_USER_ID = '550e8400-e29b-41d4-a716-446655440000' // Demo user for testing
 
@@ -78,10 +79,10 @@ export default function MatchPage() {
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold text-gray-900">🔍 What Can You Cook?</h1>
+        <h1 className="text-2xl md:text-3xl font-bold text-gray-900">🔍 What Can You Cook?</h1>
         <button
           onClick={() => router.push('/pantry')}
-          className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+          className="px-4 py-3 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors min-h-touch flex items-center justify-center"
         >
           ← Back to Pantry
         </button>
@@ -115,7 +116,7 @@ export default function MatchPage() {
         <button
           onClick={handleGenerateShoppingList}
           disabled={loading}
-          className="w-full px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 transition-colors font-medium"
+          className="w-full px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 transition-colors font-medium min-h-touch flex items-center justify-center"
         >
           🛒 Generate Shopping List
         </button>
@@ -162,20 +163,21 @@ export default function MatchPage() {
         </div>
       )}
 
-      {/* Match Results */}
-      {loading && matches.length === 0 ? (
-        <div className="flex items-center justify-center h-64">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-            <p className="text-gray-600">Loading recipe matches...</p>
+      {/* Match Results with Pull-to-Refresh */}
+      <PullToRefresh onRefresh={fetchMatches} className="h-96">
+        {loading && matches.length === 0 ? (
+          <div className="flex items-center justify-center h-64">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+              <p className="text-gray-600">Loading recipe matches...</p>
+            </div>
           </div>
-        </div>
-      ) : matches.length === 0 ? (
-        <div className="bg-blue-50 border border-blue-200 text-blue-800 px-4 py-4 rounded-lg text-center">
-          <p>No recipes to match. Add some recipes to your library first!</p>
-        </div>
-      ) : (
-        <div className="space-y-4">
+        ) : matches.length === 0 ? (
+          <div className="bg-blue-50 border border-blue-200 text-blue-800 px-4 py-4 rounded-lg text-center">
+            <p>No recipes to match. Add some recipes to your library first!</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
           {matches.map((match) => (
             <div
               key={match.recipe_id}
@@ -275,7 +277,7 @@ export default function MatchPage() {
                       e.stopPropagation()
                       router.push(`/review/${match.recipe_id}`)
                     }}
-                    className="w-full mt-3 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors text-sm font-medium"
+                    className="w-full mt-3 px-4 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors text-sm font-medium min-h-touch flex items-center justify-center"
                   >
                     📖 View Recipe
                   </button>
@@ -284,7 +286,8 @@ export default function MatchPage() {
             </div>
           ))}
         </div>
-      )}
+        )}
+      </PullToRefresh>
 
       {/* Info section */}
       <div className="bg-blue-50 border border-blue-200 p-6 rounded-lg space-y-3">

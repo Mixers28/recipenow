@@ -13,6 +13,8 @@ import {
   PantryItem,
   PantryItemRequest,
 } from '@/lib/api'
+import { Swipeable } from '@/components/Swipeable'
+import { PullToRefresh } from '@/components/PullToRefresh'
 
 const DEMO_USER_ID = '550e8400-e29b-41d4-a716-446655440000' // Demo user for testing
 
@@ -104,14 +106,17 @@ export default function PantryPage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      <h1 className="text-3xl font-bold text-gray-900">🥘 Pantry</h1>
+      <h1 className="text-2xl md:text-3xl font-bold text-gray-900">🥘 Pantry</h1>
 
       {/* Error message */}
       {error && <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg">{error}</div>}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Pantry items */}
-        <div className="lg:col-span-2 bg-white rounded-lg shadow p-6">
+        <PullToRefresh
+          onRefresh={fetchPantryItems}
+          className="lg:col-span-2 bg-white rounded-lg shadow p-6"
+        >
           <h2 className="text-xl font-semibold text-gray-900 mb-4">Your Pantry Items ({pantryItems.length})</h2>
 
           {/* Search */}
@@ -122,7 +127,7 @@ export default function PantryPage() {
               onChange={(e) => setSearchQuery(e.target.value)}
               onKeyPress={(e) => e.key === 'Enter' && fetchPantryItems()}
               placeholder="Search pantry items..."
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm min-h-touch"
             />
           </div>
 
@@ -134,27 +139,32 @@ export default function PantryPage() {
               <p className="text-gray-500 italic">No items in pantry yet. Add some below!</p>
             ) : (
               pantryItems.map((item) => (
-                <div
+                <Swipeable
                   key={item.id}
-                  className="flex justify-between items-center p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+                  onSwipeLeft={() => handleDeleteItem(item.id)}
+                  leftActions={
+                    <button
+                      onClick={() => handleDeleteItem(item.id)}
+                      className="bg-red-600 text-white px-4 py-3 h-full flex items-center justify-center font-medium"
+                    >
+                      Delete
+                    </button>
+                  }
                 >
-                  <div className="flex-1">
-                    <p className="text-gray-900 font-medium">{item.name_original}</p>
-                    <p className="text-sm text-gray-500">
-                      {item.quantity && item.unit ? `${item.quantity} ${item.unit}` : ''}
-                      {item.quantity && !item.unit ? `${item.quantity}` : ''}
-                      {item.name_norm && item.name_norm !== item.name_original && (
-                        <span className="text-xs text-gray-400 ml-2">(norm: {item.name_norm})</span>
-                      )}
-                    </p>
+                  <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer">
+                    <div className="flex-1">
+                      <p className="text-gray-900 font-medium">{item.name_original}</p>
+                      <p className="text-sm text-gray-500">
+                        {item.quantity && item.unit ? `${item.quantity} ${item.unit}` : ''}
+                        {item.quantity && !item.unit ? `${item.quantity}` : ''}
+                        {item.name_norm && item.name_norm !== item.name_original && (
+                          <span className="text-xs text-gray-400 ml-2">(norm: {item.name_norm})</span>
+                        )}
+                      </p>
+                    </div>
+                    <span className="text-gray-400 text-sm">Swipe to delete</span>
                   </div>
-                  <button
-                    onClick={() => handleDeleteItem(item.id)}
-                    className="px-3 py-1 text-red-600 hover:bg-red-50 rounded transition-colors text-sm font-medium"
-                  >
-                    ✕ Remove
-                  </button>
-                </div>
+                </Swipeable>
               ))
             )}
           </div>
@@ -169,7 +179,7 @@ export default function PantryPage() {
                 onChange={(e) => setNewItem(e.target.value)}
                 onKeyPress={(e) => e.key === 'Enter' && handleAddItem()}
                 placeholder="Ingredient (e.g., flour)"
-                className="col-span-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                className="col-span-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm min-h-touch"
                 disabled={isAdding}
               />
               <input
@@ -178,7 +188,7 @@ export default function PantryPage() {
                 onChange={(e) => setNewQuantity(e.target.value)}
                 placeholder="Qty"
                 step="0.1"
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm min-h-touch"
                 disabled={isAdding}
               />
               <input
@@ -186,19 +196,19 @@ export default function PantryPage() {
                 value={newUnit}
                 onChange={(e) => setNewUnit(e.target.value)}
                 placeholder="Unit (cups, g)"
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm min-h-touch"
                 disabled={isAdding}
               />
             </div>
             <button
               onClick={handleAddItem}
               disabled={!newItem.trim() || isAdding}
-              className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 transition-colors font-medium"
+              className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 transition-colors font-medium min-h-touch flex items-center justify-center"
             >
               {isAdding ? '⏳ Adding...' : '+ Add Item'}
             </button>
           </div>
-        </div>
+        </PullToRefresh>
 
         {/* Actions */}
         <div className="bg-white rounded-lg shadow p-6 space-y-4">
@@ -208,7 +218,7 @@ export default function PantryPage() {
             onClick={handleWhatCanICook}
             disabled={loading || pantryItems.length === 0}
             title={pantryItems.length === 0 ? 'Add pantry items first' : ''}
-            className="w-full px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium"
+            className="w-full px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium min-h-touch flex items-center justify-center"
           >
             🔍 What Can I Cook?
           </button>
@@ -216,14 +226,14 @@ export default function PantryPage() {
           <button
             onClick={() => router.push('/match')}
             disabled={loading}
-            className="w-full px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 transition-colors font-medium"
+            className="w-full px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 transition-colors font-medium min-h-touch flex items-center justify-center"
           >
             📊 View Match Results
           </button>
 
           <button
             onClick={() => router.push('/library')}
-            className="w-full px-4 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors font-medium"
+            className="w-full px-4 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors font-medium min-h-touch flex items-center justify-center"
           >
             📚 Back to Library
           </button>
