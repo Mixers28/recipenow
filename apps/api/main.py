@@ -20,6 +20,7 @@ logger = get_logger(__name__)
 app = FastAPI(
     title=settings.API_TITLE,
     version=settings.API_VERSION,
+    redirect_slashes=False,  # Disable trailing slash redirects that cause HTTPS->HTTP downgrade
 )
 
 # Initialize database schema on startup
