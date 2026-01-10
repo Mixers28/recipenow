@@ -375,7 +375,7 @@ def _run_ocr_sync(db: Session, asset_id: str) -> None:
         # Run structure parsing to populate recipe fields from OCRLines
         try:
             from services.parser import RecipeParser
-            from db.models import Recipe, SourceSpan, FieldStatus
+            from db.models import Recipe, SourceSpan
 
             # Retrieve OCRLines for parsing
             ocr_lines = (
@@ -385,7 +385,11 @@ def _run_ocr_sync(db: Session, asset_id: str) -> None:
                 .all()
             )
 
-            if ocr_lines:
+            if not ocr_lines:
+                logger.warning(f"No OCR lines found for parsing asset {asset_id}")
+            else:
+                logger.info(f"Found {len(ocr_lines)} OCR lines for parsing")
+
                 # Convert to parser format
                 parser_lines = [
                     OCRLineData(
@@ -401,7 +405,9 @@ def _run_ocr_sync(db: Session, asset_id: str) -> None:
                 parser = RecipeParser()
                 parse_result = parser.parse(parser_lines, asset_id)
                 recipe_data = parse_result.get("recipe", {})
-                source_spans = parse_result.get("source_spans", [])
+                source_spans = parse_result.get("spans", [])
+
+                logger.info(f"Parser returned recipe with title='{recipe_data.get('title')}', ingredients={len(recipe_data.get('ingredients', []))}, steps={len(recipe_data.get('steps', []))}")
 
                 # Find the recipe created for this asset (most recent)
                 recipe = (
@@ -419,19 +425,20 @@ def _run_ocr_sync(db: Session, asset_id: str) -> None:
                     recipe.steps = recipe_data.get("steps", [])
                     recipe.tags = recipe_data.get("tags", [])
 
-                    # Store source spans
+                    # Store source spans (if available)
                     for span_data in source_spans:
-                        source_span = SourceSpan(
-                            id=uuid4(),
-                            recipe_id=recipe.id,
-                            asset_id=UUID(asset_id),
-                            field_path=span_data.get("field_path"),
-                            page=span_data.get("page", 0),
-                            bbox=span_data.get("bbox", [0, 0, 0, 0]),
-                            ocr_confidence=span_data.get("confidence", 0.0),
-                            extracted_text=span_data.get("text", ""),
-                        )
-                        db.add(source_span)
+                        if isinstance(span_data, dict):
+                            source_span = SourceSpan(
+                                id=uuid4(),
+                                recipe_id=recipe.id,
+                                asset_id=UUID(asset_id),
+                                field_path=span_data.get("field_path", "unknown"),
+                                page=span_data.get("page", 0),
+                                bbox=span_data.get("bbox", [0, 0, 0, 0]),
+                                ocr_confidence=span_data.get("confidence", 0.0),
+                                extracted_text=span_data.get("extracted_text", ""),
+                            )
+                            db.add(source_span)
 
                     db.commit()
                     logger.info(
@@ -439,8 +446,10 @@ def _run_ocr_sync(db: Session, asset_id: str) -> None:
                         f"title='{recipe.title}', ingredients={len(recipe.ingredients)}, "
                         f"steps={len(recipe.steps)}"
                     )
+                else:
+                    logger.warning(f"Could not find recipe for asset {asset_id}")
         except Exception as parse_error:
-            logger.warning(f"Failed to parse recipe structure: {parse_error}", exc_info=True)
+            logger.error(f"Failed to parse recipe structure for asset {asset_id}: {parse_error}", exc_info=True)
             # Don't fail the upload if parsing fails - OCRLines were already stored
 
     except Exception as e:
