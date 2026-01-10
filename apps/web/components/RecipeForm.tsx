@@ -6,6 +6,7 @@
 import { useState } from 'react'
 import { Recipe, FieldStatus, SourceSpan } from '@/lib/api'
 import { StatusBadge } from './StatusBadge'
+import { RecipeStatusBadge } from './RecipeStatusBadge'
 
 interface RecipeFormProps {
   recipe: Recipe
@@ -266,7 +267,7 @@ export function RecipeForm({
       {/* Status indicator */}
       <div className="pt-4 border-t">
         <p className="text-sm text-gray-600">
-          <strong>Status:</strong> <StatusBadge status={recipe.status} />
+          <strong>Status:</strong> <RecipeStatusBadge status={recipe.status} />
         </p>
       </div>
     </div>
