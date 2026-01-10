@@ -7,6 +7,7 @@ from typing import Optional
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -167,14 +168,50 @@ async def upload_asset(
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 
-@router.get("/{asset_id}", response_model=AssetResponse)
-def get_asset(asset_id: str, db: Session = Depends(get_session)) -> AssetResponse:
+@router.get("/{asset_id}")
+def get_asset(asset_id: str, db: Session = Depends(get_session)):
+    """
+    Get asset file by ID.
+    Returns the actual image/PDF file as binary data.
+    Args:
+        asset_id: Asset UUID
+    Returns:
+        File blob (image or PDF)
+    """
+    try:
+        repo = AssetRepository(db)
+        asset = repo.get_by_id(UUID(asset_id))
+
+        if not asset:
+            raise HTTPException(status_code=404, detail="Asset not found")
+
+        # Retrieve file from storage
+        storage = get_storage_backend()
+        file_data = storage.get(asset.storage_path)
+
+        # Return as binary with appropriate content type
+        media_type = "image/jpeg" if asset.type == "image" else "application/pdf"
+        return StreamingResponse(
+            BytesIO(file_data),
+            media_type=media_type,
+            headers={"Content-Disposition": f"attachment; filename={asset.storage_path.split('/')[-1]}"},
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get asset failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{asset_id}/metadata", response_model=AssetResponse)
+def get_asset_metadata(asset_id: str, db: Session = Depends(get_session)) -> AssetResponse:
     """
     Get asset metadata by ID.
     Args:
         asset_id: Asset UUID
     Returns:
-        Asset metadata
+        Asset metadata (JSON)
     """
     try:
         repo = AssetRepository(db)
@@ -195,7 +232,7 @@ def get_asset(asset_id: str, db: Session = Depends(get_session)) -> AssetRespons
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Get asset failed: {e}")
+        logger.error(f"Get asset metadata failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
