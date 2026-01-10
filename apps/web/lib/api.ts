@@ -93,7 +93,7 @@ export async function listRecipes(
   if (options?.status) params.append('status', options.status)
   if (options?.tags?.length) params.append('tags', options.tags.join(','))
 
-  const res = await fetch(`${API_BASE}/recipes?${params}`, {
+  const res = await fetch(`${API_BASE}/recipes/?${params}`, {
     headers: { 'Content-Type': 'application/json' },
   })
 
@@ -281,7 +281,7 @@ export async function listPantryItems(
 
   if (options?.query) params.append('query', options.query)
 
-  const res = await fetch(`${API_BASE}/pantry?${params}`, {
+  const res = await fetch(`${API_BASE}/pantry/?${params}`, {
     headers: { 'Content-Type': 'application/json' },
   })
 
@@ -295,7 +295,7 @@ export async function createPantryItem(
 ): Promise<PantryItem> {
   const params = new URLSearchParams({ user_id: userId })
 
-  const res = await fetch(`${API_BASE}/pantry/items?${params}`, {
+  const res = await fetch(`${API_BASE}/pantry/items/?${params}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(item),
@@ -407,7 +407,7 @@ export async function matchAllRecipes(
   if (options?.status) params.append('status', options.status)
   if (options?.min_match !== undefined) params.append('min_match', String(options.min_match))
 
-  const res = await fetch(`${API_BASE}/match/all?${params}`, {
+  const res = await fetch(`${API_BASE}/match/all/?${params}`, {
     headers: { 'Content-Type': 'application/json' },
   })
 
@@ -425,7 +425,7 @@ export async function generateShoppingList(
     params.append('recipe_ids', recipeIds.join(','))
   }
 
-  const res = await fetch(`${API_BASE}/match/shopping-list?${params}`, {
+  const res = await fetch(`${API_BASE}/match/shopping-list/?${params}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
   })
