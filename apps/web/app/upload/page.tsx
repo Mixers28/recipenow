@@ -5,12 +5,12 @@
 
 import { useRouter } from 'next/navigation'
 import { useRef, useState } from 'react'
-import { useUser } from '@auth0/nextjs-auth0/client'
 import { uploadAsset } from '@/lib/api'
+
+const DEMO_USER_ID = '550e8400-e29b-41d4-a716-446655440000' // Demo user for testing
 
 export default function UploadPage() {
   const router = useRouter()
-  const { user } = useUser()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
@@ -52,18 +52,13 @@ export default function UploadPage() {
       return
     }
 
-    if (!user?.sub) {
-      setMessage({ type: 'error', text: 'User not authenticated' })
-      return
-    }
-
     setUploading(true)
     setMessage(null)
 
     try {
       const sourceLabel = (e.currentTarget.elements.namedItem('source_label') as HTMLInputElement)?.value
 
-      const data = await uploadAsset(selectedFile, user.sub, sourceLabel)
+      const data = await uploadAsset(selectedFile, DEMO_USER_ID, sourceLabel)
       setMessage({ type: 'success', text: 'Upload successful! Redirecting to review...' })
 
       // Redirect to review page after 1 second
