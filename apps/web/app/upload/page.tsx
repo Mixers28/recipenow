@@ -61,9 +61,9 @@ export default function UploadPage() {
       const data = await uploadAsset(selectedFile, DEMO_USER_ID, sourceLabel)
       setMessage({ type: 'success', text: 'Upload successful! Redirecting to review...' })
 
-      // Redirect to review page with recipe_id after 1 second
+      // Redirect to review page with recipe_id and asset_id after 1 second
       setTimeout(() => {
-        router.push(`/review/${data.recipe_id}`)
+        router.push(`/review/${data.recipe_id}?asset_id=${data.asset_id}`)
       }, 1000)
     } catch (err) {
       setMessage({

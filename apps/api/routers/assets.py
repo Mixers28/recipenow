@@ -2,17 +2,20 @@
 Assets router: upload, retrieve, and re-process recipe images/PDFs.
 """
 import logging
+from io import BytesIO
 from typing import Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from config import settings
+from db.models import OCRLine
 from db.session import get_session
 from repositories.assets import AssetRepository
 from repositories.recipes import RecipeRepository
-from services.ocr import OCRLineData
+from services.ocr import OCRLineData, get_ocr_service
 from services.storage import compute_sha256, get_storage_backend
 
 logger = logging.getLogger(__name__)
@@ -124,18 +127,30 @@ async def upload_asset(
         )
         logger.info(f"Recipe created: {recipe.id} for asset: {asset.id}")
 
-        # Enqueue ingest job (OCR)
-        try:
-            from arq import create_pool
+        # Enqueue ingest job (OCR) or run synchronously if async jobs disabled
+        job_id = None
+        if settings.ENABLE_ASYNC_JOBS:
+            try:
+                from arq import create_pool
 
-            arq = await create_pool()
-            job = await arq.enqueue_job("ingest_job", str(asset.id), use_gpu=False)
-            job_id = job.job_id if job else None
-        except Exception as e:
-            logger.warning(f"Failed to enqueue job: {e}")
-            job_id = None
-
-        logger.info(f"Asset uploaded: {asset.id}, queued job: {job_id}")
+                redis_pool = await create_pool(settings.REDIS_URL)
+                job = await redis_pool.enqueue_job("ingest_job", str(asset.id), use_gpu=False)
+                job_id = job.job_id if job else None
+                logger.info(f"Asset uploaded: {asset.id}, queued async job: {job_id}")
+            except Exception as e:
+                logger.warning(f"Failed to enqueue async job, falling back to sync OCR: {e}")
+                # Fall back to synchronous OCR
+                try:
+                    _run_ocr_sync(db, str(asset.id))
+                except Exception as ocr_error:
+                    logger.error(f"Synchronous OCR failed: {ocr_error}", exc_info=True)
+        else:
+            # Run OCR synchronously (default for local/testing)
+            try:
+                _run_ocr_sync(db, str(asset.id))
+                logger.info(f"Asset uploaded: {asset.id}, OCR completed synchronously")
+            except Exception as e:
+                logger.error(f"Failed to run OCR: {e}", exc_info=True)
 
         return AssetUploadResponse(
             asset_id=str(asset.id),
@@ -276,3 +291,122 @@ async def normalize_recipe(recipe_id: str) -> NormalizeRecipeResponse:
     except Exception as e:
         logger.error(f"Failed to enqueue normalize job: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def _run_ocr_sync(db: Session, asset_id: str) -> None:
+    """
+    Run OCR synchronously on an asset, then parse the results.
+    Fallback when async jobs (arq/Redis) are not available.
+
+    Args:
+        db: Database session
+        asset_id: Asset UUID string
+    """
+    try:
+        # Get asset from DB
+        repo = AssetRepository(db)
+        asset = repo.get_by_id(UUID(asset_id))
+
+        if not asset:
+            logger.error(f"Asset {asset_id} not found for OCR")
+            return
+
+        # Retrieve file from storage
+        storage = get_storage_backend()
+        file_data = storage.get(asset.storage_path)
+        file_bytes = BytesIO(file_data)
+
+        # Run OCR
+        ocr_service = get_ocr_service(use_gpu=False)
+        ocr_lines_data = ocr_service.extract_text(file_bytes, asset_type=asset.type)
+
+        # Store OCRLines in DB
+        for line_data in ocr_lines_data:
+            ocr_line = OCRLine(
+                id=uuid4(),
+                asset_id=UUID(asset_id),
+                page=line_data.page,
+                text=line_data.text,
+                bbox=line_data.bbox,
+                confidence=line_data.confidence,
+            )
+            db.add(ocr_line)
+
+        db.commit()
+        logger.info(f"Stored {len(ocr_lines_data)} OCR lines for asset {asset_id}")
+
+        # Run structure parsing to populate recipe fields from OCRLines
+        try:
+            from services.parser import RecipeParser
+            from db.models import Recipe, SourceSpan, FieldStatus
+
+            # Retrieve OCRLines for parsing
+            ocr_lines = (
+                db.query(OCRLine)
+                .filter_by(asset_id=UUID(asset_id))
+                .order_by(OCRLine.page, OCRLine.id)
+                .all()
+            )
+
+            if ocr_lines:
+                # Convert to parser format
+                parser_lines = [
+                    OCRLineData(
+                        page=line.page,
+                        text=line.text,
+                        bbox=line.bbox,
+                        confidence=line.confidence,
+                    )
+                    for line in ocr_lines
+                ]
+
+                # Parse recipe structure
+                parser = RecipeParser()
+                parse_result = parser.parse(parser_lines, asset_id)
+                recipe_data = parse_result.get("recipe", {})
+                source_spans = parse_result.get("source_spans", [])
+
+                # Find the recipe created for this asset (most recent)
+                recipe = (
+                    db.query(Recipe)
+                    .filter_by(user_id=asset.user_id)
+                    .order_by(Recipe.created_at.desc())
+                    .first()
+                )
+
+                if recipe:
+                    # Update recipe with parsed data
+                    recipe.title = recipe_data.get("title") or recipe.title
+                    recipe.servings = recipe_data.get("servings")
+                    recipe.ingredients = recipe_data.get("ingredients", [])
+                    recipe.steps = recipe_data.get("steps", [])
+                    recipe.tags = recipe_data.get("tags", [])
+
+                    # Store source spans
+                    for span_data in source_spans:
+                        source_span = SourceSpan(
+                            id=uuid4(),
+                            recipe_id=recipe.id,
+                            asset_id=UUID(asset_id),
+                            field_path=span_data.get("field_path"),
+                            page=span_data.get("page", 0),
+                            bbox=span_data.get("bbox", [0, 0, 0, 0]),
+                            ocr_confidence=span_data.get("confidence", 0.0),
+                            extracted_text=span_data.get("text", ""),
+                        )
+                        db.add(source_span)
+
+                    db.commit()
+                    logger.info(
+                        f"Updated recipe {recipe.id} with parsed data: "
+                        f"title='{recipe.title}', ingredients={len(recipe.ingredients)}, "
+                        f"steps={len(recipe.steps)}"
+                    )
+        except Exception as parse_error:
+            logger.warning(f"Failed to parse recipe structure: {parse_error}", exc_info=True)
+            # Don't fail the upload if parsing fails - OCRLines were already stored
+
+    except Exception as e:
+        logger.error(f"Synchronous OCR failed for asset {asset_id}: {e}", exc_info=True)
+        db.rollback()
+        raise

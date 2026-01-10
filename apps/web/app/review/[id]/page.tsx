@@ -3,11 +3,11 @@
  */
 'use client'
 
-import { useState, lazy, Suspense } from 'react'
-import { useParams } from 'next/navigation'
+import { useState, lazy, Suspense, useEffect } from 'react'
+import { useParams, useSearchParams } from 'next/navigation'
 import { useRecipe } from '@/hooks/useRecipes'
 import { Tabs } from '@/components/Tabs'
-import { SourceSpan, Recipe } from '@/lib/api'
+import { SourceSpan, Recipe, getAsset } from '@/lib/api'
 import { SkeletonImageViewer, SkeletonRecipeForm } from '@/components/SkeletonLoader'
 
 const ImageViewer = lazy(() => import('@/components/ImageViewer').then(m => ({ default: m.ImageViewer })))
@@ -17,18 +17,53 @@ const DEMO_USER_ID = '550e8400-e29b-41d4-a716-446655440000' // Demo user for tes
 
 export default function ReviewPage() {
   const params = useParams()
+  const searchParams = useSearchParams()
   const recipeId = params.id as string
+  const assetId = searchParams.get('asset_id')
+
   const [highlightedField, setHighlightedField] = useState<string>()
   const [verifyLoading, setVerifyLoading] = useState(false)
   const [verifyError, setVerifyError] = useState<string>()
+  const [imageUrl, setImageUrl] = useState<string>('')
+  const [imageLoading, setImageLoading] = useState(false)
 
   const { recipe, spans, fieldStatuses, loading, error, update, verify } = useRecipe(
     DEMO_USER_ID,
     recipeId
   )
 
-  // Mock image URL - in production would come from asset API
-  const imageUrl = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='800' height='600'%3E%3Crect fill='%23ddd' width='800' height='600'/%3E%3Ctext x='50' y='50' font-size='24' fill='%23666'%3ERecipe Image Placeholder%3C/text%3E%3Ctext x='50' y='100' font-size='14' fill='%23999'%3EImage from asset would be displayed here%3C/text%3E%3C/svg%3E`
+  // Fetch actual image from asset if asset_id is provided
+  useEffect(() => {
+    if (!assetId) {
+      // No asset provided, use placeholder
+      setImageUrl(`data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='800' height='600'%3E%3Crect fill='%23ddd' width='800' height='600'/%3E%3Ctext x='50' y='50' font-size='24' fill='%23666'%3ERecipe Image Placeholder%3C/text%3E%3Ctext x='50' y='100' font-size='14' fill='%23999'%3ENo image available%3C/text%3E%3C/svg%3E`)
+      return
+    }
+
+    const fetchImage = async () => {
+      setImageLoading(true)
+      try {
+        const blob = await getAsset(assetId)
+        const url = URL.createObjectURL(blob)
+        setImageUrl(url)
+      } catch (err) {
+        console.error('Failed to fetch image:', err)
+        // Fall back to placeholder
+        setImageUrl(`data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='800' height='600'%3E%3Crect fill='%23fdd' width='800' height='600'/%3E%3Ctext x='50' y='50' font-size='24' fill='%23c33'%3EFailed to load image%3C/text%3E%3C/svg%3E`)
+      } finally {
+        setImageLoading(false)
+      }
+    }
+
+    fetchImage()
+
+    // Cleanup object URL on unmount
+    return () => {
+      if (imageUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(imageUrl)
+      }
+    }
+  }, [assetId])
 
   const handleBboxClick = (bbox: SourceSpan['bbox'], fieldPath: string) => {
     setHighlightedField(fieldPath)

@@ -26,8 +26,12 @@ class Settings(BaseSettings):
     # Logging Configuration
     LOG_LEVEL: str = "INFO"
 
-    # Database Configuration (if needed)
+    # Database Configuration
     DATABASE_URL: str = os.getenv("DATABASE_URL", "")
+
+    # Redis Configuration for Background Jobs
+    REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+    ENABLE_ASYNC_JOBS: bool = os.getenv("ENABLE_ASYNC_JOBS", "false").lower() == "true"
 
     class Config:
         # Load from .env file if it exists
