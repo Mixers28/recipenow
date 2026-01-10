@@ -5,15 +5,30 @@ from typing import Callable
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.cors import CORSMiddleware
 
+from config import settings
 from logging_config import setup_logging, get_logger
 from routers import assets, match, pantry, recipes, shopping_list
 
 # Setup logging on startup
-setup_logging(log_level="INFO")
+setup_logging(log_level=settings.LOG_LEVEL)
 logger = get_logger(__name__)
 
-app = FastAPI(title="RecipeNow API", version="0.1.0")
+app = FastAPI(
+    title=settings.API_TITLE,
+    version=settings.API_VERSION,
+)
+
+# CORS configuration - Allow requests from Vercel frontend and local development
+logger.info(f"Enabling CORS for origins: {settings.allowed_origins_list}")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.allowed_origins_list,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 # Middleware for request/response logging and error handling
