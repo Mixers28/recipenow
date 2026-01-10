@@ -67,18 +67,14 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                 exc_info=True,
             )
 
-            # Return error response
-            return JSONResponse(
-                status_code=500,
-                content={
-                    "detail": "Internal server error",
-                    "request_id": request_id,
-                },
-            )
+            # Re-raise the exception so FastAPI's default error handler processes it
+            # This is important for validation errors (400) vs server errors (500)
+            raise
 
 
 # Add middleware
-app.add_middleware(LoggingMiddleware)
+# NOTE: Temporarily disabled - BaseHTTPMiddleware interferes with multipart form parsing
+# app.add_middleware(LoggingMiddleware)
 
 
 app.include_router(assets.router, prefix="/assets")
