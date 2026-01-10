@@ -80,11 +80,11 @@ class LoggingMiddleware(BaseHTTPMiddleware):
 app.add_middleware(LoggingMiddleware)
 
 
-app.include_router(assets.router, prefix="/assets", tags=["assets"])
-app.include_router(recipes.router, prefix="/recipes", tags=["recipes"])
-app.include_router(pantry.router, prefix="/pantry", tags=["pantry"])
-app.include_router(match.router, prefix="/match", tags=["match"])
-app.include_router(shopping_list.router, prefix="/shopping-list", tags=["shopping-list"])
+app.include_router(assets.router, prefix="/assets")
+app.include_router(recipes.router, prefix="/recipes")
+app.include_router(pantry.router)
+app.include_router(match.router)
+app.include_router(shopping_list.router, prefix="/shopping-list")
 
 
 @app.get("/")
