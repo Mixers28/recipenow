@@ -3,13 +3,15 @@
  */
 'use client'
 
-import { useState } from 'react'
+import { useState, lazy, Suspense } from 'react'
 import { useParams } from 'next/navigation'
 import { useRecipe } from '@/hooks/useRecipes'
-import { ImageViewer } from '@/components/ImageViewer'
-import { RecipeForm } from '@/components/RecipeForm'
 import { Tabs } from '@/components/Tabs'
 import { SourceSpan, Recipe } from '@/lib/api'
+import { SkeletonImageViewer, SkeletonRecipeForm } from '@/components/SkeletonLoader'
+
+const ImageViewer = lazy(() => import('@/components/ImageViewer').then(m => ({ default: m.ImageViewer })))
+const RecipeForm = lazy(() => import('@/components/RecipeForm').then(m => ({ default: m.RecipeForm })))
 
 const DEMO_USER_ID = '550e8400-e29b-41d4-a716-446655440000' // Demo user for testing
 
@@ -102,26 +104,30 @@ export default function ReviewPage() {
       <div className="hidden lg:grid grid-cols-2 gap-6 h-screen -mb-8">
         {/* Left: Image Viewer */}
         <div className="overflow-hidden rounded-lg">
-          <ImageViewer
-            imageUrl={imageUrl}
-            spans={spans}
-            highlightedFieldPath={highlightedField}
-            onBboxClick={handleBboxClick}
-          />
+          <Suspense fallback={<SkeletonImageViewer />}>
+            <ImageViewer
+              imageUrl={imageUrl}
+              spans={spans}
+              highlightedFieldPath={highlightedField}
+              onBboxClick={handleBboxClick}
+            />
+          </Suspense>
         </div>
 
         {/* Right: Recipe Form */}
         <div className="overflow-hidden rounded-lg">
-          <RecipeForm
-            recipe={recipe}
-            fieldStatuses={fieldStatuses}
-            spans={spans}
-            onUpdate={handleUpdate}
-            onVerify={handleVerify}
-            loading={loading || verifyLoading}
-            highlightedField={highlightedField}
-            onFieldClick={handleFieldClick}
-          />
+          <Suspense fallback={<SkeletonRecipeForm />}>
+            <RecipeForm
+              recipe={recipe}
+              fieldStatuses={fieldStatuses}
+              spans={spans}
+              onUpdate={handleUpdate}
+              onVerify={handleVerify}
+              loading={loading || verifyLoading}
+              highlightedField={highlightedField}
+              onFieldClick={handleFieldClick}
+            />
+          </Suspense>
         </div>
       </div>
 
@@ -134,16 +140,18 @@ export default function ReviewPage() {
               label: '🖼️ Image',
               content: (
                 <div className="h-full overflow-hidden">
-                  <ImageViewer
-                    imageUrl={imageUrl}
-                    spans={spans}
-                    highlightedFieldPath={highlightedField}
-                    onBboxClick={(bbox, fieldPath) => {
-                      handleBboxClick(bbox, fieldPath)
-                      // Auto-switch to form tab when bbox clicked
-                      // This would require exposing tab switching via context
-                    }}
-                  />
+                  <Suspense fallback={<SkeletonImageViewer />}>
+                    <ImageViewer
+                      imageUrl={imageUrl}
+                      spans={spans}
+                      highlightedFieldPath={highlightedField}
+                      onBboxClick={(bbox, fieldPath) => {
+                        handleBboxClick(bbox, fieldPath)
+                        // Auto-switch to form tab when bbox clicked
+                        // This would require exposing tab switching via context
+                      }}
+                    />
+                  </Suspense>
                 </div>
               ),
             },
@@ -152,16 +160,18 @@ export default function ReviewPage() {
               label: '📝 Form',
               content: (
                 <div className="h-full overflow-y-auto">
-                  <RecipeForm
-                    recipe={recipe}
-                    fieldStatuses={fieldStatuses}
-                    spans={spans}
-                    onUpdate={handleUpdate}
-                    onVerify={handleVerify}
-                    loading={loading || verifyLoading}
-                    highlightedField={highlightedField}
-                    onFieldClick={handleFieldClick}
-                  />
+                  <Suspense fallback={<SkeletonRecipeForm />}>
+                    <RecipeForm
+                      recipe={recipe}
+                      fieldStatuses={fieldStatuses}
+                      spans={spans}
+                      onUpdate={handleUpdate}
+                      onVerify={handleVerify}
+                      loading={loading || verifyLoading}
+                      highlightedField={highlightedField}
+                      onFieldClick={handleFieldClick}
+                    />
+                  </Suspense>
                 </div>
               ),
             },

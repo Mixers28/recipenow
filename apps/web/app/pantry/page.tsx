@@ -13,6 +13,7 @@ import {
   PantryItem,
   PantryItemRequest,
 } from '@/lib/api'
+import { useDebounce } from '@/hooks/useDebounce'
 import { Swipeable } from '@/components/Swipeable'
 import { PullToRefresh } from '@/components/PullToRefresh'
 
@@ -34,11 +35,12 @@ export default function PantryPage() {
 
   // Search state
   const [searchQuery, setSearchQuery] = useState('')
+  const debouncedSearchQuery = useDebounce(searchQuery, 300)
 
-  // Load pantry items on mount
+  // Load pantry items on mount and when search changes
   useEffect(() => {
     fetchPantryItems()
-  }, [])
+  }, [debouncedSearchQuery])
 
   const fetchPantryItems = async () => {
     try {

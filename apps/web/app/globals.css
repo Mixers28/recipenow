@@ -88,3 +88,13 @@ select {
     background-color: #f0f9ff;
   }
 }
+
+/* Shimmer loading animation */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}

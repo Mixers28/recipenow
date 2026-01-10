@@ -6,6 +6,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRecipeList } from '@/hooks/useRecipes'
+import { useDebounce } from '@/hooks/useDebounce'
 import { RecipeStatusBadge } from '@/components/RecipeStatusBadge'
 import { PullToRefresh } from '@/components/PullToRefresh'
 
@@ -14,11 +15,12 @@ const DEMO_USER_ID = '550e8400-e29b-41d4-a716-446655440000' // Demo user for tes
 export default function LibraryPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('')
+  const debouncedSearchQuery = useDebounce(searchQuery, 300)
   const { recipes, total, loading, error, fetch } = useRecipeList(DEMO_USER_ID)
 
   useEffect(() => {
-    fetch({ query: searchQuery, status: statusFilter || undefined })
-  }, [searchQuery, statusFilter, fetch])
+    fetch({ query: debouncedSearchQuery, status: statusFilter || undefined })
+  }, [debouncedSearchQuery, statusFilter, fetch])
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(e.target.value)
