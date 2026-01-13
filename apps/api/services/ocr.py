@@ -107,6 +107,10 @@ class OCRService:
                 if page_result is None:
                     continue
 
+                if isinstance(page_result, dict) and "rec_texts" in page_result:
+                    ocr_lines.extend(_lines_from_rec_output(page_idx, page_result))
+                    continue
+
                 page_items = page_result
                 if isinstance(page_result, dict):
                     page_items = (
@@ -165,6 +169,10 @@ def _get_line_value(line_result, keys: list[str]):
 
 
 def _normalize_bbox(bbox_coords):
+    if bbox_coords is None:
+        return None
+    if hasattr(bbox_coords, "tolist"):
+        bbox_coords = bbox_coords.tolist()
     if not bbox_coords:
         return None
     # Already [x, y, w, h]
@@ -221,6 +229,33 @@ def _parse_ocr_line(line_result):
     if text and bbox:
         return text, bbox, confidence
     return None
+
+
+def _lines_from_rec_output(page_idx: int, page_result: dict) -> list[OCRLineData]:
+    rec_texts = page_result.get("rec_texts") or []
+    rec_scores = page_result.get("rec_scores") or []
+    rec_polys = page_result.get("rec_polys") or page_result.get("rec_boxes") or []
+    if not rec_polys:
+        rec_polys = page_result.get("dt_polys") or []
+
+    lines: list[OCRLineData] = []
+    for idx, text in enumerate(rec_texts):
+        if not text:
+            continue
+        bbox_coords = rec_polys[idx] if idx < len(rec_polys) else None
+        bbox = _normalize_bbox(bbox_coords)
+        if not bbox:
+            continue
+        confidence = rec_scores[idx] if idx < len(rec_scores) else 0.0
+        lines.append(
+            OCRLineData(
+                page=page_idx,
+                text=str(text).strip(),
+                bbox=bbox,
+                confidence=float(confidence),
+            )
+        )
+    return lines
 
 
 @lru_cache(maxsize=2)
