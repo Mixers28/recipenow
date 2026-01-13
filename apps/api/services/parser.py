@@ -255,6 +255,19 @@ class RecipeParser:
         spans.extend([r[1] for r in ingredient_results if r[1]])
         field_statuses.extend([r[2] for r in ingredient_results if r[2]])
 
+        if not ingredient_results and ingredient_range:
+            fallback_results = self._extract_ingredients(
+                ocr_lines,
+                ingredient_range,
+                asset_id,
+                relax_filters=True,
+            )
+            if fallback_results:
+                recipe["ingredients"] = [r[0] for r in fallback_results]
+                spans.extend([r[1] for r in fallback_results if r[1]])
+                field_statuses.extend([r[2] for r in fallback_results if r[2]])
+                ingredient_results = fallback_results
+
         if not ingredient_results:
             field_statuses.append(
                 {
@@ -409,6 +422,7 @@ class RecipeParser:
         ocr_lines: List[OCRLineData],
         ingredient_range: Optional[Tuple[int, int]],
         asset_id: str,
+        relax_filters: bool = False,
     ) -> List[Tuple]:
         """
         Extract ingredients from OCRLines.
@@ -445,10 +459,11 @@ class RecipeParser:
                 continue
             if any(ind in lower_text for ind in self.TIME_INDICATORS) and re.search(r"\d", lower_text):
                 continue
-            if self._is_step_candidate(text):
-                continue
-            if not self._looks_like_ingredient(text):
-                continue
+            if not relax_filters:
+                if self._is_step_candidate(text):
+                    continue
+                if not self._looks_like_ingredient(text):
+                    continue
 
             # Try to parse ingredient
             ingredient = self._parse_ingredient_line(text)
@@ -558,7 +573,7 @@ class RecipeParser:
             return steps
 
         # Parse lines in steps section
-        step_num = 0
+        current_step_idx = None
         for idx in range(start_idx, len(ocr_lines)):
             line = ocr_lines[idx]
             text = line.text.strip()
@@ -568,12 +583,17 @@ class RecipeParser:
                 continue
 
             if self._looks_like_header(text):
+                if current_step_idx is None:
+                    continue
                 break
 
             if self._is_noise_line(text):
                 continue
 
             if not self._is_step_candidate(text):
+                if current_step_idx is not None:
+                    steps[current_step_idx][0]["text"] += f" {text}"
+                    steps[current_step_idx][1]["extracted_text"] += f" {text}"
                 continue
 
             # Create step entry
@@ -593,6 +613,7 @@ class RecipeParser:
             }
 
             steps.append((step, span, status))
+            current_step_idx = len(steps) - 1
 
         return steps
 
