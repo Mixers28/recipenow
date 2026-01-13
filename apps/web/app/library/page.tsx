@@ -6,6 +6,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRecipeList } from '@/hooks/useRecipes'
+import { deleteRecipe } from '@/lib/api'
 import { useDebounce } from '@/hooks/useDebounce'
 import { RecipeStatusBadge } from '@/components/RecipeStatusBadge'
 import { PullToRefresh } from '@/components/PullToRefresh'
@@ -15,6 +16,8 @@ const DEMO_USER_ID = '550e8400-e29b-41d4-a716-446655440000' // Demo user for tes
 export default function LibraryPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('')
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
   const debouncedSearchQuery = useDebounce(searchQuery, 300)
   const { recipes, total, loading, error, fetch } = useRecipeList(DEMO_USER_ID)
 
@@ -28,6 +31,24 @@ export default function LibraryPage() {
 
   const handleStatusFilter = (e: React.ChangeEvent<HTMLSelectElement>) => {
     setStatusFilter(e.target.value)
+  }
+
+  const handleDelete = async (e: React.MouseEvent, recipeId: string) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const confirmed = confirm('Delete this recipe? This cannot be undone.')
+    if (!confirmed) return
+
+    try {
+      setDeletingId(recipeId)
+      setActionError(null)
+      await deleteRecipe(DEMO_USER_ID, recipeId)
+      await fetch({ query: searchQuery, status: statusFilter || undefined })
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to delete recipe')
+    } finally {
+      setDeletingId(null)
+    }
   }
 
   return (
@@ -88,9 +109,9 @@ export default function LibraryPage() {
       </div>
 
       {/* Error display */}
-      {error && (
+      {(error || actionError) && (
         <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg">
-          {error}
+          {actionError || error}
         </div>
       )}
 
@@ -116,11 +137,22 @@ export default function LibraryPage() {
               >
                 {/* Recipe card */}
                 <div className="p-6">
-                  <div className="flex justify-between items-start mb-2">
+                  <div className="flex justify-between items-start mb-2 gap-3">
                     <h3 className="text-lg font-semibold text-gray-900 line-clamp-2">
                       {recipe.title || 'Untitled Recipe'}
                     </h3>
-                    <RecipeStatusBadge status={recipe.status} />
+                    <div className="flex items-start gap-2">
+                      <RecipeStatusBadge status={recipe.status} />
+                      <button
+                        onClick={(e) => handleDelete(e, recipe.id)}
+                        disabled={deletingId === recipe.id}
+                        className="text-xs text-red-600 hover:text-red-700 disabled:text-gray-400"
+                        aria-label={`Delete ${recipe.title || 'recipe'}`}
+                        title="Delete recipe"
+                      >
+                        {deletingId === recipe.id ? 'Deleting...' : 'Delete'}
+                      </button>
+                    </div>
                   </div>
 
                   {/* Recipe info */}
