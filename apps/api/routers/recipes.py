@@ -113,7 +113,6 @@ class FieldStatusResponse(BaseModel):
     field_path: str
     status: str
     notes: Optional[str]
-    created_at: Optional[str]
 
     class Config:
         from_attributes = True
@@ -669,7 +668,6 @@ def list_field_statuses(
                 field_path=s.field_path,
                 status=s.status,
                 notes=s.notes,
-                created_at=s.created_at.isoformat() if s.created_at else None,
             )
             for s in statuses
         ]
