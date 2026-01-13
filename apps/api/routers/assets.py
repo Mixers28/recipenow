@@ -84,11 +84,22 @@ async def upload_asset(
         file_bytes = BytesIO(file_content)
         sha256 = compute_sha256(file_bytes)
 
+        storage = get_storage_backend()
+
         # Check for duplicates
         repo = AssetRepository(db)
         existing = repo.get_by_sha256(UUID(user_id), sha256)
         if existing:
             logger.info(f"File already uploaded: {existing.id}")
+
+            # Ensure the file still exists in storage (handle cleaned volumes)
+            if not storage.exists(existing.storage_path):
+                logger.warning(
+                    f"Asset record {existing.id} missing on disk at {existing.storage_path}; re-saving file."
+                )
+                file_bytes.seek(0)
+                storage.save(file_bytes, existing.storage_path)
+
             # Create a new recipe for the duplicate asset
             recipe_repo = RecipeRepository(db)
             recipe = recipe_repo.create(
@@ -105,7 +116,6 @@ async def upload_asset(
             )
 
         # Store file
-        storage = get_storage_backend()
         storage_path = f"assets/{user_id}/{file.filename}"
         file_bytes.seek(0)
         storage.save(file_bytes, storage_path)
@@ -187,6 +197,10 @@ def get_asset(asset_id: str, db: Session = Depends(get_session)):
 
         # Retrieve file from storage
         storage = get_storage_backend()
+        if not storage.exists(asset.storage_path):
+            logger.error(f"Asset file missing at {asset.storage_path}")
+            raise HTTPException(status_code=404, detail="Asset file missing on disk")
+
         file_data = storage.get(asset.storage_path)
 
         # Return as binary with appropriate content type
