@@ -12,6 +12,7 @@
 - **Sprint 4 Complete:** Repository layer + CRUD endpoints for recipes/spans/pantry with user isolation.
 - **Sprint 5 Complete:** Review UI (split-view in Next.js with image viewer + field highlights + badges).
 - **Sprint 6 In Progress:** Pantry & Match (pantry CRUD, matching logic, shopping list).
+- **Active Issue:** Railway OCR pipeline failing; fields remain missing due to PaddleOCR init errors.
 - **Context:** Multi-user JWT auth, Railway + Vercel deployment, **full V1 UI and backend complete**.
 <!-- SUMMARY_END -->
 
@@ -29,7 +30,16 @@ Execute RecipeNow V1 implementation per SPEC.md: 6 sprints covering scaffolding,
 
 ---
 
-## What We Are Working On Right Now (Sprint 6 – Pantry & Match)
+## What We Are Working On Right Now
+
+### OCR Stability (Railway)
+
+- [ ] **Fix PaddleOCR init:** handle `use_gpu` arg mismatch (retry without it).
+- [ ] **Ensure system deps:** libgl1 + libglib2.0-0 in API/worker images and redeploy.
+- [ ] **Verify OCR output:** confirm OCR lines > 0 and parser fills fields on re-upload.
+- [ ] **Confirm field statuses:** spans + FieldStatus created on parse.
+
+### Sprint 6 – Pantry & Match
 
 - [ ] **Sprint 6.1:** Implement GET /pantry endpoint with pagination and user isolation.
 - [ ] **Sprint 6.2:** Implement POST /pantry/items endpoint for creating pantry items.
@@ -62,7 +72,7 @@ Execute RecipeNow V1 implementation per SPEC.md: 6 sprints covering scaffolding,
 
 ## Next Milestone
 
-Sprint 0 complete → confirm repo structure, FastAPI routes, Next.js setup, and docker-compose runs without errors.
+Railway OCR pipeline stable → parsed fields populate and field statuses render correctly.
 
 ---
 

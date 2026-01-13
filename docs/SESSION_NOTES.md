@@ -11,8 +11,9 @@
 - **Sprint 3 Complete:** Deterministic recipe parsing, SourceSpans + FieldStatus creation, name_norm normalization.
 - **Sprint 4 Complete:** Repository layer + CRUD endpoints for recipes/spans/pantry, user isolation enforcement.
 - **Sprint 5 Complete:** Review UI with split-view, image viewer, field highlighting, and editable form.
-- **Context:** Multi-user JWT auth, Railway + Vercel deployment, full V1 implementation complete.
-- Next focus: **Sprint 6 – Pantry & Match** (Pantry CRUD, matching logic, shopping list).
+- **Sprint 6 In Progress:** Pantry CRUD + matching endpoints + shopping list logic implemented; UI work ongoing.
+- **Active Issue:** Railway OCR pipeline failing (PaddleOCR deps/init errors); fields still missing.
+- Next focus: stabilize OCR on Railway, then complete Sprint 6 UI + match flow.
 <!-- SUMMARY_END -->
 
 ---
@@ -48,6 +49,40 @@
 ---
 
 ## Recent Sessions (last 3-5)
+
+### 2026-01-13 (Session 10: OCR + Sprint 6 Fixes)
+
+**Participants:** User, Codex Agent  
+**Branch:** main
+
+### What we worked on
+- Added match logic for required-only ingredients and optional handling.
+- Implemented `POST /match` summary response and `/shopping-list/from-match` aggregation.
+- Added image fallback in Review page using spans to resolve asset_id.
+- Fixed asset storage path handling (absolute paths) and missing-file behavior.
+- Populated recipes from OCR on duplicate uploads and ensured FieldStatus creation.
+- Added OCR service caching + startup log to verify PaddleOCR dependency on Railway.
+- Added system libs (`libgl1`, `libglib2.0-0`) to API/worker images for PaddleOCR.
+- Investigated Railway OCR failures; identified `use_gpu` arg mismatch in PaddleOCR init.
+
+### Files touched
+- `apps/api/services/matching.py`
+- `apps/api/routers/match.py`
+- `apps/api/routers/shopping_list.py`
+- `apps/api/tests/test_matching.py`
+- `apps/web/app/review/[id]/page.tsx`
+- `apps/api/routers/assets.py`
+- `apps/api/services/storage.py`
+- `apps/api/services/ocr.py`
+- `apps/api/main.py`
+- `apps/api/Dockerfile`
+- `apps/worker/Dockerfile`
+
+### Outcomes / Decisions
+- **Sprint 6 progress:** Matching logic and shopping list endpoints implemented; UI still in progress.
+- **OCR stability:** PaddleOCR dependency now detected on startup; system libs added for OpenCV.
+- **Blocking issue:** PaddleOCR init fails on Railway with `Unknown argument: use_gpu`; fix pending.
+- **Next steps:** Deploy OCR init fallback, re-upload assets, verify OCR lines and parsed fields.
 
 ### 2026-01-09 (Session 9: Sprint 5 Implementation)
 
