@@ -107,6 +107,8 @@ async def upload_asset(
                 title=f"Recipe from {file.filename}" if file.filename else "New Recipe",
                 status="draft",
             )
+            # Populate the new recipe using existing OCR lines
+            _populate_recipe_from_ocr(db, str(existing.id), recipe)
             return AssetUploadResponse(
                 asset_id=str(existing.id),
                 recipe_id=str(recipe.id),
@@ -459,80 +461,18 @@ def _run_ocr_sync(db: Session, asset_id: str) -> None:
 
         # Run structure parsing to populate recipe fields from OCRLines
         try:
-            from services.parser import RecipeParser
-            from db.models import Recipe, SourceSpan
+            from db.models import Recipe
 
-            # Retrieve OCRLines for parsing
-            ocr_lines = (
-                db.query(OCRLine)
-                .filter_by(asset_id=UUID(asset_id))
-                .order_by(OCRLine.page, OCRLine.id)
-                .all()
+            recipe = (
+                db.query(Recipe)
+                .filter_by(user_id=asset.user_id)
+                .order_by(Recipe.created_at.desc())
+                .first()
             )
-
-            if not ocr_lines:
-                logger.warning(f"No OCR lines found for parsing asset {asset_id}")
+            if recipe:
+                _populate_recipe_from_ocr(db, asset_id, recipe)
             else:
-                logger.info(f"Found {len(ocr_lines)} OCR lines for parsing")
-
-                # Convert to parser format
-                parser_lines = [
-                    OCRLineData(
-                        page=line.page,
-                        text=line.text,
-                        bbox=line.bbox,
-                        confidence=line.confidence,
-                    )
-                    for line in ocr_lines
-                ]
-
-                # Parse recipe structure
-                parser = RecipeParser()
-                parse_result = parser.parse(parser_lines, asset_id)
-                recipe_data = parse_result.get("recipe", {})
-                source_spans = parse_result.get("spans", [])
-
-                logger.info(f"Parser returned recipe with title='{recipe_data.get('title')}', ingredients={len(recipe_data.get('ingredients', []))}, steps={len(recipe_data.get('steps', []))}")
-
-                # Find the recipe created for this asset (most recent)
-                recipe = (
-                    db.query(Recipe)
-                    .filter_by(user_id=asset.user_id)
-                    .order_by(Recipe.created_at.desc())
-                    .first()
-                )
-
-                if recipe:
-                    # Update recipe with parsed data
-                    recipe.title = recipe_data.get("title") or recipe.title
-                    recipe.servings = recipe_data.get("servings")
-                    recipe.ingredients = recipe_data.get("ingredients", [])
-                    recipe.steps = recipe_data.get("steps", [])
-                    recipe.tags = recipe_data.get("tags", [])
-
-                    # Store source spans (if available)
-                    for span_data in source_spans:
-                        if isinstance(span_data, dict):
-                            source_span = SourceSpan(
-                                id=uuid4(),
-                                recipe_id=recipe.id,
-                                asset_id=UUID(asset_id),
-                                field_path=span_data.get("field_path", "unknown"),
-                                page=span_data.get("page", 0),
-                                bbox=span_data.get("bbox", [0, 0, 0, 0]),
-                                ocr_confidence=span_data.get("confidence", 0.0),
-                                extracted_text=span_data.get("extracted_text", ""),
-                            )
-                            db.add(source_span)
-
-                    db.commit()
-                    logger.info(
-                        f"Updated recipe {recipe.id} with parsed data: "
-                        f"title='{recipe.title}', ingredients={len(recipe.ingredients)}, "
-                        f"steps={len(recipe.steps)}"
-                    )
-                else:
-                    logger.warning(f"Could not find recipe for asset {asset_id}")
+                logger.warning(f"Could not find recipe for asset {asset_id}")
         except Exception as parse_error:
             logger.error(f"Failed to parse recipe structure for asset {asset_id}: {parse_error}", exc_info=True)
             # Don't fail the upload if parsing fails - OCRLines were already stored
@@ -541,3 +481,85 @@ def _run_ocr_sync(db: Session, asset_id: str) -> None:
         logger.error(f"Synchronous OCR failed for asset {asset_id}: {e}", exc_info=True)
         db.rollback()
         raise
+
+
+def _populate_recipe_from_ocr(db: Session, asset_id: str, recipe) -> None:
+    """
+    Populate a recipe using existing OCR lines for the asset.
+    If OCR lines are missing, this function exits early (upload flow is responsible for creating them).
+    """
+    try:
+        from services.parser import RecipeParser
+        from db.models import SourceSpan
+
+        # Retrieve OCRLines for parsing
+        ocr_lines = (
+            db.query(OCRLine)
+            .filter_by(asset_id=UUID(asset_id))
+            .order_by(OCRLine.page, OCRLine.id)
+            .all()
+        )
+
+        if not ocr_lines:
+            logger.warning(f"No OCR lines found for parsing asset {asset_id}")
+            return
+
+        logger.info(f"Found {len(ocr_lines)} OCR lines for parsing asset {asset_id}")
+
+        # Convert to parser format
+        parser_lines = [
+            OCRLineData(
+                page=line.page,
+                text=line.text,
+                bbox=line.bbox,
+                confidence=line.confidence,
+            )
+            for line in ocr_lines
+        ]
+
+        # Parse recipe structure
+        parser = RecipeParser()
+        parse_result = parser.parse(parser_lines, asset_id)
+        recipe_data = parse_result.get("recipe", {})
+        source_spans = parse_result.get("spans", [])
+
+        logger.info(
+            f"Parser returned recipe with title='{recipe_data.get('title')}', "
+            f"ingredients={len(recipe_data.get('ingredients', []))}, "
+            f"steps={len(recipe_data.get('steps', []))}"
+        )
+
+        # Update recipe with parsed data
+        recipe.title = recipe_data.get("title") or recipe.title
+        recipe.servings = recipe_data.get("servings")
+        recipe.ingredients = recipe_data.get("ingredients", [])
+        recipe.steps = recipe_data.get("steps", [])
+        recipe.tags = recipe_data.get("tags", [])
+
+        # Store source spans (if available)
+        for span_data in source_spans:
+            if isinstance(span_data, dict):
+                source_span = SourceSpan(
+                    id=uuid4(),
+                    recipe_id=recipe.id,
+                    asset_id=UUID(asset_id),
+                    field_path=span_data.get("field_path", "unknown"),
+                    page=span_data.get("page", 0),
+                    bbox=span_data.get("bbox", [0, 0, 0, 0]),
+                    ocr_confidence=span_data.get("confidence", 0.0),
+                    extracted_text=span_data.get("extracted_text", ""),
+                )
+                db.add(source_span)
+
+        db.commit()
+        logger.info(
+            f"Updated recipe {recipe.id} with parsed data from asset {asset_id}: "
+            f"title='{recipe.title}', ingredients={len(recipe.ingredients)}, "
+            f"steps={len(recipe.steps)}"
+        )
+    except Exception as parse_error:
+        logger.error(
+            f"Failed to parse recipe structure for asset {asset_id}: {parse_error}",
+            exc_info=True,
+        )
+        db.rollback()
