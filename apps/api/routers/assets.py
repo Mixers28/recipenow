@@ -490,7 +490,7 @@ def _populate_recipe_from_ocr(db: Session, asset_id: str, recipe) -> None:
     """
     try:
         from services.parser import RecipeParser
-        from db.models import SourceSpan
+        from db.models import SourceSpan, FieldStatus
 
         # Retrieve OCRLines for parsing
         ocr_lines = (
@@ -536,6 +536,10 @@ def _populate_recipe_from_ocr(db: Session, asset_id: str, recipe) -> None:
         recipe.steps = recipe_data.get("steps", [])
         recipe.tags = recipe_data.get("tags", [])
 
+        # Clear existing spans/statuses for a clean re-parse
+        db.query(SourceSpan).filter_by(recipe_id=recipe.id).delete()
+        db.query(FieldStatus).filter_by(recipe_id=recipe.id).delete()
+
         # Store source spans (if available)
         for span_data in source_spans:
             if isinstance(span_data, dict):
@@ -550,6 +554,17 @@ def _populate_recipe_from_ocr(db: Session, asset_id: str, recipe) -> None:
                     extracted_text=span_data.get("extracted_text", ""),
                 )
                 db.add(source_span)
+
+        # Store field statuses
+        for status_data in parse_result.get("field_statuses", []):
+            field_status = FieldStatus(
+                id=uuid4(),
+                recipe_id=recipe.id,
+                field_path=status_data.get("field_path", ""),
+                status=status_data.get("status", "missing"),
+                notes=status_data.get("notes"),
+            )
+            db.add(field_status)
 
         db.commit()
         logger.info(
