@@ -32,24 +32,33 @@ export default function ReviewPage() {
     recipeId
   )
 
-  // Fetch actual image from asset if asset_id is provided
+  // Fetch actual image from asset; fall back to spans to discover asset_id
   useEffect(() => {
-    if (!assetId) {
+    const resolvedAssetId =
+      assetId || (spans && spans.length > 0 ? spans[0].asset_id : undefined)
+
+    if (!resolvedAssetId) {
       // No asset provided, use placeholder
-      setImageUrl(`data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='800' height='600'%3E%3Crect fill='%23ddd' width='800' height='600'/%3E%3Ctext x='50' y='50' font-size='24' fill='%23666'%3ERecipe Image Placeholder%3C/text%3E%3Ctext x='50' y='100' font-size='14' fill='%23999'%3ENo image available%3C/text%3E%3C/svg%3E`)
+      setImageUrl(
+        `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='800' height='600'%3E%3Crect fill='%23ddd' width='800' height='600'/%3E%3Ctext x='50' y='50' font-size='24' fill='%23666'%3ERecipe Image Placeholder%3C/text%3E%3Ctext x='50' y='100' font-size='14' fill='%23999'%3ENo image available%3C/text%3E%3C/svg%3E`
+      )
       return
     }
+
+    let objectUrl: string | null = null
 
     const fetchImage = async () => {
       setImageLoading(true)
       try {
-        const blob = await getAsset(assetId)
-        const url = URL.createObjectURL(blob)
-        setImageUrl(url)
+        const blob = await getAsset(resolvedAssetId)
+        objectUrl = URL.createObjectURL(blob)
+        setImageUrl(objectUrl)
       } catch (err) {
         console.error('Failed to fetch image:', err)
         // Fall back to placeholder
-        setImageUrl(`data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='800' height='600'%3E%3Crect fill='%23fdd' width='800' height='600'/%3E%3Ctext x='50' y='50' font-size='24' fill='%23c33'%3EFailed to load image%3C/text%3E%3C/svg%3E`)
+        setImageUrl(
+          `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='800' height='600'%3E%3Crect fill='%23fdd' width='800' height='600'/%3E%3Ctext x='50' y='50' font-size='24' fill='%23c33'%3EFailed to load image%3C/text%3E%3C/svg%3E`
+        )
       } finally {
         setImageLoading(false)
       }
@@ -57,13 +66,13 @@ export default function ReviewPage() {
 
     fetchImage()
 
-    // Cleanup object URL on unmount
+    // Cleanup object URL on unmount or asset change
     return () => {
-      if (imageUrl.startsWith('blob:')) {
-        URL.revokeObjectURL(imageUrl)
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl)
       }
     }
-  }, [assetId])
+  }, [assetId, spans])
 
   const handleBboxClick = (bbox: SourceSpan['bbox'], fieldPath: string) => {
     setHighlightedField(fieldPath)
