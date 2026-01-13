@@ -102,6 +102,41 @@ class RecipeParser:
         "stir",
         "whisk",
     }
+    UNIT_TOKENS = {
+        "tsp",
+        "tbsp",
+        "teaspoon",
+        "teaspoons",
+        "tablespoon",
+        "tablespoons",
+        "cup",
+        "cups",
+        "g",
+        "kg",
+        "gram",
+        "grams",
+        "mg",
+        "ml",
+        "l",
+        "oz",
+        "lb",
+        "lbs",
+        "pound",
+        "pounds",
+        "pinch",
+        "clove",
+        "cloves",
+        "can",
+        "cans",
+        "package",
+        "packages",
+        "slice",
+        "slices",
+        "bunch",
+        "bunches",
+        "sprig",
+        "sprigs",
+    }
     NOISE_PHRASES = {
         "nutrition",
         "calories",
@@ -210,12 +245,12 @@ class RecipeParser:
             )
 
         # Extract ingredients
-        ingredient_results = self._extract_ingredients(
+        ingredient_range = self._find_ingredient_range(
             ocr_lines,
             sections.get("ingredients_indices", []),
             sections.get("steps_indices", []),
-            asset_id,
         )
+        ingredient_results = self._extract_ingredients(ocr_lines, ingredient_range, asset_id)
         recipe["ingredients"] = [r[0] for r in ingredient_results]
         spans.extend([r[1] for r in ingredient_results if r[1]])
         field_statuses.extend([r[2] for r in ingredient_results if r[2]])
@@ -230,7 +265,12 @@ class RecipeParser:
             )
 
         # Extract steps
-        step_results = self._extract_steps(ocr_lines, sections.get("steps_indices", []), asset_id)
+        steps_start = self._find_steps_start(
+            ocr_lines,
+            sections.get("steps_indices", []),
+            ingredient_range,
+        )
+        step_results = self._extract_steps(ocr_lines, steps_start, asset_id)
         recipe["steps"] = [r[0] for r in step_results]
         spans.extend([r[1] for r in step_results if r[1]])
         field_statuses.extend([r[2] for r in step_results if r[2]])
@@ -282,13 +322,19 @@ class RecipeParser:
             lower_text = line.text.lower().strip()
 
             # Check for section headers
-            if any(ind in lower_text for ind in self.INGREDIENT_INDICATORS):
+            if self._looks_like_header(lower_text) and any(
+                ind in lower_text for ind in self.INGREDIENT_INDICATORS
+            ):
                 sections["ingredients_indices"].append(i)
 
-            if any(ind in lower_text for ind in self.STEPS_INDICATORS):
+            if self._looks_like_header(lower_text) and any(
+                ind in lower_text for ind in self.STEPS_INDICATORS
+            ):
                 sections["steps_indices"].append(i)
 
-            if any(ind in lower_text for ind in self.TITLE_INDICATORS):
+            if self._looks_like_header(lower_text) and any(
+                ind in lower_text for ind in self.TITLE_INDICATORS
+            ):
                 sections["title_indices"].append(i)
 
         # If no explicit indicators found, use heuristics
@@ -361,8 +407,7 @@ class RecipeParser:
     def _extract_ingredients(
         self,
         ocr_lines: List[OCRLineData],
-        ingredient_indices: List[int],
-        steps_indices: List[int],
+        ingredient_range: Optional[Tuple[int, int]],
         asset_id: str,
     ) -> List[Tuple]:
         """
@@ -373,15 +418,10 @@ class RecipeParser:
         """
         ingredients = []
 
-        # Find ingredient section start
-        start_idx = 0
-        if ingredient_indices:
-            start_idx = ingredient_indices[0] + 1
+        if not ingredient_range:
+            return ingredients
 
-        # Find section end (next section header or end of lines)
-        end_idx = len(ocr_lines)
-        if steps_indices:
-            end_idx = min(end_idx, steps_indices[0])
+        start_idx, end_idx = ingredient_range
 
         # Parse lines in ingredient section
         for idx in range(start_idx, end_idx):
@@ -404,6 +444,10 @@ class RecipeParser:
             if text.endswith(":"):
                 continue
             if any(ind in lower_text for ind in self.TIME_INDICATORS) and re.search(r"\d", lower_text):
+                continue
+            if self._is_step_candidate(text):
+                continue
+            if not self._looks_like_ingredient(text):
                 continue
 
             # Try to parse ingredient
@@ -500,7 +544,7 @@ class RecipeParser:
         return None
 
     def _extract_steps(
-        self, ocr_lines: List[OCRLineData], steps_indices: List[int], asset_id: str
+        self, ocr_lines: List[OCRLineData], start_idx: Optional[int], asset_id: str
     ) -> List[Tuple]:
         """
         Extract cooking steps from OCRLines.
@@ -510,10 +554,8 @@ class RecipeParser:
         """
         steps = []
 
-        # Find steps section start
-        start_idx = 0
-        if steps_indices:
-            start_idx = steps_indices[0] + 1
+        if start_idx is None:
+            return steps
 
         # Parse lines in steps section
         step_num = 0
@@ -576,6 +618,19 @@ class RecipeParser:
             return True
         return False
 
+    def _looks_like_ingredient(self, text: str) -> bool:
+        lower_text = text.lower()
+        if self.step_prefix_pattern.match(lower_text):
+            return False
+        if self.bullet_pattern.match(lower_text):
+            return True
+        if self.quantity_pattern.match(lower_text):
+            return True
+        tokens = re.split(r"[^a-zA-Z]+", lower_text)
+        if any(token in self.UNIT_TOKENS for token in tokens):
+            return True
+        return False
+
     def _is_step_candidate(self, text: str) -> bool:
         lower_text = text.lower().strip()
         if self.step_prefix_pattern.match(lower_text):
@@ -586,6 +641,75 @@ class RecipeParser:
         if first_word in self.STEP_VERBS:
             return True
         return False
+
+    def _find_ingredient_range(
+        self,
+        ocr_lines: List[OCRLineData],
+        ingredient_indices: List[int],
+        steps_indices: List[int],
+    ) -> Optional[Tuple[int, int]]:
+        if ingredient_indices:
+            start_idx = ingredient_indices[0] + 1
+            end_idx = steps_indices[0] if steps_indices else len(ocr_lines)
+            return (start_idx, end_idx)
+
+        start_idx = None
+        for idx, line in enumerate(ocr_lines):
+            text = line.text.strip()
+            if not text or self._looks_like_header(text) or self._is_noise_line(text):
+                continue
+            if self._looks_like_ingredient(text):
+                start_idx = idx
+                break
+
+        if start_idx is None:
+            return None
+
+        end_idx = start_idx
+        gap = 0
+        max_gap = 2
+        for idx in range(start_idx, len(ocr_lines)):
+            text = ocr_lines[idx].text.strip()
+            if not text:
+                gap += 1
+                if gap > max_gap:
+                    break
+                continue
+            if self._looks_like_header(text) or self._is_step_candidate(text):
+                break
+            if self._is_noise_line(text):
+                gap += 1
+                if gap > max_gap:
+                    break
+                continue
+            if self._looks_like_ingredient(text):
+                end_idx = idx + 1
+                gap = 0
+            else:
+                gap += 1
+                if gap > max_gap:
+                    break
+
+        return (start_idx, end_idx)
+
+    def _find_steps_start(
+        self,
+        ocr_lines: List[OCRLineData],
+        steps_indices: List[int],
+        ingredient_range: Optional[Tuple[int, int]],
+    ) -> Optional[int]:
+        if steps_indices:
+            return steps_indices[0] + 1
+
+        start_idx = ingredient_range[1] if ingredient_range else 0
+        for idx in range(start_idx, len(ocr_lines)):
+            text = ocr_lines[idx].text.strip()
+            if not text or self._looks_like_header(text) or self._is_noise_line(text):
+                continue
+            if self._is_step_candidate(text):
+                return idx
+
+        return None
 
     def _extract_servings(
         self, ocr_lines: List[OCRLineData], asset_id: str
