@@ -70,6 +70,20 @@ class OCRService:
                 logger.warning("PaddleOCR.ocr() without cls due to error: %s", exc)
                 result = self.ocr.ocr(tmp_path)
 
+            if isinstance(result, dict):
+                result = [result]
+
+            if not isinstance(result, list):
+                logger.warning("Unexpected OCR result type: %s", type(result))
+                return []
+
+            if result:
+                sample = result[0]
+                if isinstance(sample, dict):
+                    logger.info("OCR result sample keys: %s", list(sample.keys()))
+                else:
+                    logger.info("OCR result sample type: %s", type(sample))
+
             # Parse results
             ocr_lines = []
             for page_idx, page_result in enumerate(result):
@@ -164,7 +178,7 @@ def _parse_ocr_line(line_result):
                 return text, bbox, confidence
 
     # Dict/object output
-    text = _get_line_value(line_result, ["text", "rec_text", "value"])
+    text = _get_line_value(line_result, ["text", "rec_text", "ocr_text", "value"])
     confidence = _get_line_value(line_result, ["confidence", "score", "rec_score"]) or 0.0
     bbox_coords = _get_line_value(line_result, ["bbox", "box", "points", "poly", "det_poly"])
     bbox = _normalize_bbox(bbox_coords)
