@@ -71,13 +71,13 @@ class LocalDiskStorage(StorageBackend):
 
     def get(self, file_path: str) -> bytes:
         """Retrieve file from local disk."""
-        full_path = self.base_dir / file_path
+        full_path = Path(file_path) if Path(file_path).is_absolute() else self.base_dir / file_path
         with open(full_path, "rb") as f:
             return f.read()
 
     def delete(self, file_path: str) -> bool:
         """Delete file from local disk."""
-        full_path = self.base_dir / file_path
+        full_path = Path(file_path) if Path(file_path).is_absolute() else self.base_dir / file_path
         if full_path.exists():
             full_path.unlink()
             return True
@@ -85,7 +85,7 @@ class LocalDiskStorage(StorageBackend):
 
     def exists(self, file_path: str) -> bool:
         """Check if file exists on local disk."""
-        full_path = self.base_dir / file_path
+        full_path = Path(file_path) if Path(file_path).is_absolute() else self.base_dir / file_path
         return full_path.exists()
 
 

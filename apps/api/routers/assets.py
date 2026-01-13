@@ -107,8 +107,11 @@ async def upload_asset(
                 title=f"Recipe from {file.filename}" if file.filename else "New Recipe",
                 status="draft",
             )
-            # Populate the new recipe using existing OCR lines
-            _populate_recipe_from_ocr(db, str(existing.id), recipe)
+            # Re-run OCR/parse to populate the new recipe using the existing asset
+            try:
+                _run_ocr_sync(db, str(existing.id))
+            except Exception as parse_err:
+                logger.error(f"Failed to repopulate recipe from existing asset {existing.id}: {parse_err}")
             return AssetUploadResponse(
                 asset_id=str(existing.id),
                 recipe_id=str(recipe.id),
@@ -120,14 +123,14 @@ async def upload_asset(
         # Store file
         storage_path = f"assets/{user_id}/{file.filename}"
         file_bytes.seek(0)
-        storage.save(file_bytes, storage_path)
+        saved_path = storage.save(file_bytes, storage_path)
 
         # Create MediaAsset record
         asset = repo.create(
             user_id=UUID(user_id),
             asset_type=asset_type,
             sha256=sha256,
-            storage_path=storage_path,
+            storage_path=saved_path if saved_path else storage_path,
             source_label=source_label,
         )
 
@@ -439,6 +442,10 @@ def _run_ocr_sync(db: Session, asset_id: str) -> None:
         storage = get_storage_backend()
         file_data = storage.get(asset.storage_path)
         file_bytes = BytesIO(file_data)
+
+        # Remove existing OCR lines to avoid duplicates on re-runs
+        db.query(OCRLine).filter_by(asset_id=UUID(asset_id)).delete()
+        db.commit()
 
         # Run OCR
         ocr_service = get_ocr_service(use_gpu=False)
