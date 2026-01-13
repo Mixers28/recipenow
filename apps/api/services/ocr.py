@@ -74,7 +74,7 @@ class OCRService:
                 result = result[0]
 
             if isinstance(result, dict):
-                logger.info("OCR result keys: %s", list(result.keys()))
+                logger.warning("OCR result keys: %s", list(result.keys()))
                 result = (
                     result.get("data")
                     or result.get("res")
@@ -97,9 +97,9 @@ class OCRService:
 
             sample = result[0]
             if isinstance(sample, dict):
-                logger.info("OCR result sample keys: %s", list(sample.keys()))
+                logger.warning("OCR result sample keys: %s", list(sample.keys()))
             else:
-                logger.info("OCR result sample type: %s", type(sample))
+                logger.warning("OCR result sample type: %s", type(sample))
 
             # Parse results
             ocr_lines = []
@@ -136,6 +136,11 @@ class OCRService:
                     )
 
             logger.info(f"OCR extracted {len(ocr_lines)} lines from {tmp_path}")
+            if not ocr_lines:
+                logger.warning("OCR parsed 0 lines; sample result: %s", _short_repr(sample))
+                first_page = result[0] if result else None
+                if first_page is not None:
+                    logger.warning("OCR first page repr: %s", _short_repr(first_page))
             return ocr_lines
 
         except Exception as e:
