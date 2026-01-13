@@ -63,8 +63,12 @@ class OCRService:
             tmp_path = tmp.name
 
         try:
-            # Run OCR
-            result = self.ocr.ocr(tmp_path, cls=True)
+            # Run OCR (older PaddleOCR supports cls, newer pipelines do not)
+            try:
+                result = self.ocr.ocr(tmp_path, cls=True)
+            except TypeError as exc:
+                logger.warning("PaddleOCR.ocr() without cls due to error: %s", exc)
+                result = self.ocr.ocr(tmp_path)
 
             # Parse results
             ocr_lines = []
@@ -72,14 +76,20 @@ class OCRService:
                 if page_result is None:
                     continue
 
-                for line_result in page_result:
-                    # line_result format: [[x1,y1], [x2,y1], [x2,y2], [x1,y2]], (text, confidence)
-                    bbox_coords, (text, confidence) = line_result
+                page_items = page_result
+                if isinstance(page_result, dict):
+                    page_items = (
+                        page_result.get("data")
+                        or page_result.get("res")
+                        or page_result.get("lines")
+                        or [page_result]
+                    )
 
-                    # Convert to [x, y, width, height] format
-                    x1, y1 = bbox_coords[0]
-                    x2, y2 = bbox_coords[2]
-                    bbox = [float(x1), float(y1), float(x2 - x1), float(y2 - y1)]
+                for line_result in page_items:
+                    parsed = _parse_ocr_line(line_result)
+                    if not parsed:
+                        continue
+                    text, bbox, confidence = parsed
 
                     ocr_lines.append(
                         OCRLineData(
@@ -103,6 +113,64 @@ class OCRService:
 
             if os.path.exists(tmp_path):
                 os.unlink(tmp_path)
+
+
+def _get_line_value(line_result, keys: list[str]):
+    for key in keys:
+        if isinstance(line_result, dict) and key in line_result:
+            return line_result.get(key)
+        if hasattr(line_result, key):
+            return getattr(line_result, key)
+    return None
+
+
+def _normalize_bbox(bbox_coords):
+    if not bbox_coords:
+        return None
+    # Already [x, y, w, h]
+    if (
+        isinstance(bbox_coords, (list, tuple))
+        and len(bbox_coords) == 4
+        and all(isinstance(v, (int, float)) for v in bbox_coords)
+    ):
+        x, y, w, h = bbox_coords
+        return [float(x), float(y), float(w), float(h)]
+    # Polygon [[x1,y1], [x2,y1], [x2,y2], [x1,y2]]
+    if isinstance(bbox_coords, (list, tuple)) and len(bbox_coords) >= 4:
+        first = bbox_coords[0]
+        third = bbox_coords[2]
+        if (
+            isinstance(first, (list, tuple))
+            and isinstance(third, (list, tuple))
+            and len(first) >= 2
+            and len(third) >= 2
+        ):
+            x1, y1 = first[:2]
+            x2, y2 = third[:2]
+            return [float(x1), float(y1), float(x2 - x1), float(y2 - y1)]
+    return None
+
+
+def _parse_ocr_line(line_result):
+    # Legacy PaddleOCR output: [bbox_coords, (text, confidence)]
+    if isinstance(line_result, (list, tuple)) and len(line_result) >= 2:
+        bbox_coords = line_result[0]
+        text_conf = line_result[1]
+        if isinstance(text_conf, (list, tuple)) and len(text_conf) >= 2:
+            text = text_conf[0]
+            confidence = text_conf[1]
+            bbox = _normalize_bbox(bbox_coords)
+            if text and bbox:
+                return text, bbox, confidence
+
+    # Dict/object output
+    text = _get_line_value(line_result, ["text", "rec_text", "value"])
+    confidence = _get_line_value(line_result, ["confidence", "score", "rec_score"]) or 0.0
+    bbox_coords = _get_line_value(line_result, ["bbox", "box", "points", "poly", "det_poly"])
+    bbox = _normalize_bbox(bbox_coords)
+    if text and bbox:
+        return text, bbox, confidence
+    return None
 
 
 @lru_cache(maxsize=2)
