@@ -36,7 +36,14 @@ class OCRService:
         except ImportError:
             raise ImportError("Install PaddleOCR with: pip install paddleocr[all]")
 
-        self.ocr = PaddleOCR(use_gpu=use_gpu, lang=lang)
+        try:
+            self.ocr = PaddleOCR(use_gpu=use_gpu, lang=lang)
+        except (TypeError, ValueError) as exc:
+            logger.warning(
+                "PaddleOCR init without use_gpu due to error: %s",
+                exc,
+            )
+            self.ocr = PaddleOCR(lang=lang)
         self.use_gpu = use_gpu
 
     def extract_text(self, file_data: BinaryIO, asset_type: str = "image") -> List[OCRLineData]:
