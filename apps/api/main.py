@@ -1,3 +1,4 @@
+import importlib.util
 import logging
 import time
 from typing import Callable
@@ -17,6 +18,14 @@ from db.session import engine
 setup_logging(log_level=settings.LOG_LEVEL)
 logger = get_logger(__name__)
 
+
+def _log_ocr_dependency() -> None:
+    """Log whether PaddleOCR is available in this runtime."""
+    if importlib.util.find_spec("paddleocr") is None:
+        logger.warning("PaddleOCR not installed. OCR will be unavailable.")
+    else:
+        logger.info("PaddleOCR dependency detected.")
+
 app = FastAPI(
     title=settings.API_TITLE,
     version=settings.API_VERSION,
@@ -27,6 +36,9 @@ app = FastAPI(
 logger.info("Initializing database schema...")
 Base.metadata.create_all(bind=engine)
 logger.info("✅ Database schema initialized")
+
+# Log OCR dependency status
+_log_ocr_dependency()
 
 # CORS configuration - Allow requests from Vercel frontend and local development
 logger.info(f"Enabling CORS for origins: {settings.allowed_origins_list}")

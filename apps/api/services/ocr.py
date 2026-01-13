@@ -4,6 +4,7 @@ Handles OCR processing and returns structured OCRLine data.
 """
 import logging
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import BinaryIO, List, Optional
 from uuid import UUID
 
@@ -97,6 +98,7 @@ class OCRService:
                 os.unlink(tmp_path)
 
 
-def get_ocr_service(use_gpu: bool = False) -> OCRService:
-    """Factory function to get OCRService instance."""
-    return OCRService(use_gpu=use_gpu)
+@lru_cache(maxsize=2)
+def get_ocr_service(use_gpu: bool = False, lang: str = "en") -> OCRService:
+    """Factory function to get a cached OCRService instance."""
+    return OCRService(use_gpu=use_gpu, lang=lang)
