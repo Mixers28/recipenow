@@ -4,11 +4,12 @@ Recipe matching endpoints for finding cookable recipes based on pantry items.
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, Path, Depends
+from fastapi import APIRouter, HTTPException, Query, Path, Depends, Body
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from db.session import get_session
+from repositories.recipes import RecipeRepository
 from services.matching import RecipeMatchingService
 
 router = APIRouter(prefix="/match", tags=["match"])
@@ -27,6 +28,7 @@ class IngredientMatchResponse(BaseModel):
     quantity: Optional[float]
     unit: Optional[str]
     found: bool
+    optional: bool
 
 
 class RecipeMatchResponse(BaseModel):
@@ -46,6 +48,38 @@ class RecipeMatchListResponse(BaseModel):
 
     recipes: List[RecipeMatchResponse]
     total: int
+
+
+class MatchRequest(BaseModel):
+    """Request body for matching recipes against pantry items."""
+
+    recipe_ids: Optional[List[str]] = None
+    pantry_items: Optional[List[str]] = None
+
+
+class MatchIngredientSummary(BaseModel):
+    """Summary of a missing ingredient for match response."""
+
+    original_text: str
+    name_norm: str
+    quantity: Optional[float]
+    unit: Optional[str]
+    optional: bool
+
+
+class MatchRecipeSummary(BaseModel):
+    """Summary result for a recipe match."""
+
+    recipe_id: str
+    match_percent: float
+    missing_required: List[MatchIngredientSummary]
+    missing_optional: List[MatchIngredientSummary]
+
+
+class MatchResponse(BaseModel):
+    """Match response for multiple recipes."""
+
+    recipe_matches: List[MatchRecipeSummary]
 
 
 class ShoppingListItem(BaseModel):
@@ -113,6 +147,7 @@ def match_recipe(
                 quantity=ing.quantity,
                 unit=ing.unit,
                 found=ing.found,
+                optional=ing.optional,
             )
             for ing in match.ingredient_matches
         ],
@@ -123,6 +158,7 @@ def match_recipe(
                 quantity=ing.quantity,
                 unit=ing.unit,
                 found=ing.found,
+                optional=ing.optional,
             )
             for ing in match.missing_ingredients
         ],
@@ -170,6 +206,7 @@ def match_all_recipes(
                         quantity=ing.quantity,
                         unit=ing.unit,
                         found=ing.found,
+                        optional=ing.optional,
                     )
                     for ing in match.ingredient_matches
                 ],
@@ -180,6 +217,7 @@ def match_all_recipes(
                         quantity=ing.quantity,
                         unit=ing.unit,
                         found=ing.found,
+                        optional=ing.optional,
                     )
                     for ing in match.missing_ingredients
                 ],
@@ -188,6 +226,79 @@ def match_all_recipes(
         ],
         total=len(matches),
     )
+
+
+@router.post("/", response_model=MatchResponse)
+def match_recipes(
+    payload: MatchRequest = Body(default=MatchRequest()),
+    user_id: str = Query(..., description="User UUID"),
+    db: Session = Depends(get_session),
+) -> MatchResponse:
+    """
+    Match recipes against pantry items.
+
+    Args:
+        payload: Optional recipe IDs and pantry item overrides
+        user_id: User UUID
+
+    Returns:
+        Match summaries with missing required/optional ingredients
+    """
+    try:
+        user_uuid = UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id format")
+
+    recipe_ids: Optional[List[UUID]] = None
+    if payload.recipe_ids:
+        try:
+            recipe_ids = [UUID(recipe_id) for recipe_id in payload.recipe_ids]
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid recipe ID format")
+
+    service = RecipeMatchingService(db)
+    recipe_repo = RecipeRepository(db)
+
+    if recipe_ids is None:
+        recipes, _ = recipe_repo.get_all(user_uuid, limit=1000)
+        recipe_ids = [recipe.id for recipe in recipes]
+
+    recipe_matches: List[MatchRecipeSummary] = []
+    for recipe_id in recipe_ids:
+        match = service.match_recipe(
+            user_uuid, recipe_id, pantry_items=payload.pantry_items
+        )
+        if not match:
+            continue
+
+        missing_required: List[MatchIngredientSummary] = []
+        missing_optional: List[MatchIngredientSummary] = []
+
+        for ing in match.ingredient_matches:
+            if ing.found:
+                continue
+            summary = MatchIngredientSummary(
+                original_text=ing.original_text,
+                name_norm=ing.name_norm,
+                quantity=ing.quantity,
+                unit=ing.unit,
+                optional=ing.optional,
+            )
+            if ing.optional:
+                missing_optional.append(summary)
+            else:
+                missing_required.append(summary)
+
+        recipe_matches.append(
+            MatchRecipeSummary(
+                recipe_id=match.recipe_id,
+                match_percent=match.match_percentage,
+                missing_required=missing_required,
+                missing_optional=missing_optional,
+            )
+        )
+
+    return MatchResponse(recipe_matches=recipe_matches)
 
 
 @router.post("/shopping-list", response_model=ShoppingListResponse)

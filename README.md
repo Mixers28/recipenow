@@ -1,105 +1,95 @@
-# Universal Handoff Kit (Local MCP compatible)
+# RecipeNow
 
-A tiny **prompt compiler** you can use with *any chat window / any LLM* (Codex, Claude, ChatGPT, etc.).
-It builds a **token-budgeted Context Pack** from your repo’s memory files and prints a **role handoff prompt** you copy/paste.
+RecipeNow is a self-hosted, privacy-first recipe pipeline that turns uploaded
+recipe media (photos, screenshots, PDFs) into verified, provenance-backed
+recipes. Every extracted field is traceable to source pixels, and the split-view
+review UI makes correction and verification fast.
 
-This version is adapted to your **local-mcp-context-kit** layout:
-- Reads: `docs/PROJECT_CONTEXT.md`, `docs/NOW.md`, `docs/SESSION_NOTES.md`
-- Includes: `docs/AGENT_SESSION_PROTOCOL.md` (excerpt)
-- If present, uses your repo role prompts: `.github/agents/*.agent.md`
-- Can be run from anywhere inside the repo (auto-finds project root)
+## Current Status
 
-## Install
+- Sprints 0-5 complete: scaffolding, schema, OCR pipeline, CRUD API, review UI
+- Sprint 6 in progress: pantry CRUD, matching, and shopping list workflows
 
-### Option A (recommended, venv)
-From the repo root:
+See `docs/NOW.md` for the live sprint checklist and `docs/SPEC.md` for the
+canonical V1 blueprint.
 
+## Stack (Pinned Versions)
+
+- API: FastAPI 0.128.0, SQLAlchemy 2.0.25, psycopg 3.3.2
+- Worker: ARQ 0.26.3 + Redis 7
+- OCR: PaddleOCR 3.3.2
+- Web: Next.js 16.1.0, React 19
+- DB: Postgres 16
+
+## Repo Layout
+
+```
+apps/
+  api/        FastAPI backend
+  web/        Next.js frontend
+  worker/     OCR/parse/normalize jobs
+packages/
+  schema/     Pydantic + TS types
+  ocr/        OCR adapters + preprocess
+  parser/     Structured parsing + provenance
+  matcher/    Pantry matching logic
+infra/
+  docker-compose.yml
+  migrations/
+docs/
+  SPEC.md
+  NOW.md
+  SESSION_NOTES.md
+```
+
+## Quickstart (Docker)
+
+```bash
+docker compose -f infra/docker-compose.yml up --build
+```
+
+Services:
+- API: http://localhost:8000
+- Web: http://localhost:3000
+- MinIO console (optional): http://localhost:9001
+
+## Local Dev (Without Docker)
+
+API:
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-python -m pip install -e .
+pip install -r apps/api/requirements.txt
+DATABASE_URL=postgresql+psycopg://recipenow:recipenow@localhost:5432/recipenow \
+REDIS_URL=redis://localhost:6379 \
+uvicorn apps.api.main:app --reload
 ```
 
-This exposes a `handoffkit` CLI (you can also use `python -m handoffkit`).
-
-### Option B (no install)
-Run directly from the repo root:
-
+Worker:
 ```bash
-python -m handoffkit --help
+source .venv/bin/activate
+pip install -r apps/worker/requirements.txt
+DATABASE_URL=postgresql+psycopg://recipenow:recipenow@localhost:5432/recipenow \
+REDIS_URL=redis://localhost:6379 \
+arq apps.worker.worker.WorkerSettings
 ```
 
-If you see `externally-managed-environment`, use a venv or install via `pipx`.
-
-## Usage
-
-Run from *any* directory; just point `--root` somewhere inside the repo (or omit it if you’re already inside).
-If you didn’t install, replace `handoffkit` with `python -m handoffkit`.
-
-### Architect
+Web:
 ```bash
-handoffkit architect "Turn my idea into SPEC.md + phases/sprints" --root .
+cd apps/web
+npm install
+NEXT_PUBLIC_API_URL=http://localhost:8000 npm run dev
 ```
 
-### Coder
-```bash
-handoffkit coder "Implement Sprint 1 from SPEC.md" --root .
-```
+## Core Principles
 
-### Reviewer (diff file)
-```bash
-git diff > patch.diff
-handoffkit reviewer "Review this patch vs SPEC.md and best practices" --root . --diff patch.diff
-```
+- Source-of-truth only: no inferred values without OCR evidence or user edits
+- Provenance per field: every extracted field has SourceSpans or is marked missing
+- Verification gating: title + >= 1 ingredient + >= 1 step required before verify
+- Review-first workflow: split-view UI is the primary workflow, not a power user path
 
-### Reviewer (pipe diff from stdin)
-```bash
-git diff | handoffkit reviewer "Review this patch vs SPEC.md and best practices" --root . --diff -
-```
+## Documentation
 
-### QA/Tester
-```bash
-handoffkit qa_tester "Write a lightweight test plan + edge cases" --root .
-```
-
-### Polish
-```bash
-handoffkit polish "One-pass polish for clarity/consistency" --root .
-```
-
-## Session Flow
-
-### Start Session
-```bash
-handoffkit session start --agent-role Coder --open-docs
-```
-
-### End Session (writeback + commit)
-```bash
-handoffkit session end --commit
-```
-
-## Config (optional)
-
-If no config is found, defaults are aligned to local-mcp-context-kit.
-
-Example `handoffkit.config.json`:
-
-```json
-{
-  "token_budget": 7000,
-  "baseline_files": ["docs/PROJECT_CONTEXT.md", "docs/NOW.md"],
-  "session_notes_file": "docs/SESSION_NOTES.md",
-  "session_notes_tail_lines": 120,
-  "protocol_file": "docs/AGENT_SESSION_PROTOCOL.md",
-  "protocol_tail_lines": 120
-}
-```
-
-## Notes
-
-- For best token efficiency, add summary blocks to your memory files:
-  - `<!-- SUMMARY_START --> ... <!-- SUMMARY_END -->`
-  - Recommended in `docs/PROJECT_CONTEXT.md`, `docs/NOW.md`, and `docs/SESSION_NOTES.md`
-- The output ends with **SESSION END – INSTRUCTIONS** telling the agent to include “Session Updates”
-  so you can easily update `NOW.md` and `SESSION_NOTES.md` per your protocol.
+- `docs/SPEC.md`: canonical V1 blueprint and API contract
+- `docs/IMPLEMENTATION_PLAN.md`: build plan + pinned versions
+- `docs/PROJECT_CONTEXT.md`: long-term project context

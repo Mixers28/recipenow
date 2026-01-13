@@ -3,7 +3,7 @@ Recipe matching service for comparing recipes against user's pantry items.
 Computes match percentages and identifies missing ingredients.
 """
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Iterable, List, Optional
 from uuid import UUID
 
 from sqlalchemy.orm import Session
@@ -22,6 +22,7 @@ class IngredientMatch:
     quantity: Optional[float]
     unit: Optional[str]
     found: bool
+    optional: bool
 
 
 @dataclass
@@ -46,7 +47,34 @@ class RecipeMatchingService:
         self.recipe_repo = RecipeRepository(db)
         self.pantry_repo = PantryRepository(db)
 
-    def match_recipe(self, user_id: UUID, recipe_id: UUID) -> Optional[RecipeMatch]:
+    def _normalize_terms(self, terms: Iterable[str]) -> set[str]:
+        """Normalize a collection of ingredient terms for matching."""
+        return {term.strip().lower() for term in terms if term and term.strip()}
+
+    def _resolve_pantry_norms(
+        self, user_id: UUID, pantry_items: Optional[List[str]] = None
+    ) -> set[str]:
+        """Resolve pantry norms from stored items or an override list."""
+        if pantry_items is not None:
+            return self._normalize_terms(pantry_items)
+
+        stored_items, _ = self.pantry_repo.get_all(user_id)
+        return self._normalize_terms(item.name_norm for item in stored_items)
+
+    def _matches_pantry(self, name_norm: str, original_text: str, pantry_norms: set[str]) -> bool:
+        """Return True when the ingredient matches the pantry."""
+        if name_norm:
+            return name_norm in pantry_norms
+
+        if not original_text:
+            return False
+
+        text = original_text.lower()
+        return any(norm in text for norm in pantry_norms)
+
+    def match_recipe(
+        self, user_id: UUID, recipe_id: UUID, pantry_items: Optional[List[str]] = None
+    ) -> Optional[RecipeMatch]:
         """
         Match a single recipe against user's pantry items.
 
@@ -62,20 +90,21 @@ class RecipeMatchingService:
             return None
 
         # Get all pantry items for user
-        pantry_items, _ = self.pantry_repo.get_all(user_id)
-        pantry_norms = {item.name_norm.lower() for item in pantry_items}
+        pantry_norms = self._resolve_pantry_norms(user_id, pantry_items=pantry_items)
 
         # Match each ingredient
         ingredient_matches: List[IngredientMatch] = []
-        matched_count = 0
+        matched_required = 0
+        total_required = 0
 
         for ingredient in recipe.ingredients or []:
             original_text = ingredient.get("original_text", "")
             name_norm = ingredient.get("name_norm", "").lower()
             quantity = ingredient.get("quantity")
             unit = ingredient.get("unit")
+            optional = bool(ingredient.get("optional", False))
 
-            found = name_norm in pantry_norms if name_norm else False
+            found = self._matches_pantry(name_norm, original_text, pantry_norms)
 
             match = IngredientMatch(
                 original_text=original_text,
@@ -83,26 +112,29 @@ class RecipeMatchingService:
                 quantity=quantity,
                 unit=unit,
                 found=found,
+                optional=optional,
             )
             ingredient_matches.append(match)
 
-            if found:
-                matched_count += 1
+            if not optional:
+                total_required += 1
+                if found:
+                    matched_required += 1
 
-        # Separate found and missing
-        found_matches = [m for m in ingredient_matches if m.found]
+        # Separate missing ingredients
         missing_matches = [m for m in ingredient_matches if not m.found]
 
         # Compute match percentage
-        total_ingredients = len(recipe.ingredients or [])
-        match_percentage = (matched_count / total_ingredients * 100) if total_ingredients > 0 else 0
+        match_percentage = (
+            (matched_required / total_required * 100) if total_required > 0 else 0
+        )
 
         return RecipeMatch(
             recipe_id=str(recipe_id),
             recipe_title=recipe.title or "Untitled Recipe",
             match_percentage=round(match_percentage, 1),
-            total_ingredients=total_ingredients,
-            matched_ingredients=matched_count,
+            total_ingredients=total_required,
+            matched_ingredients=matched_required,
             ingredient_matches=ingredient_matches,
             missing_ingredients=missing_matches,
         )
