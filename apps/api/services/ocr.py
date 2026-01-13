@@ -70,19 +70,36 @@ class OCRService:
                 logger.warning("PaddleOCR.ocr() without cls due to error: %s", exc)
                 result = self.ocr.ocr(tmp_path)
 
+            if isinstance(result, tuple) and result:
+                result = result[0]
+
             if isinstance(result, dict):
-                result = [result]
+                logger.info("OCR result keys: %s", list(result.keys()))
+                result = (
+                    result.get("data")
+                    or result.get("res")
+                    or result.get("lines")
+                    or result.get("result")
+                    or result.get("results")
+                    or result.get("ocr_result")
+                    or result.get("outputs")
+                    or [result]
+                )
 
             if not isinstance(result, list):
                 logger.warning("Unexpected OCR result type: %s", type(result))
+                logger.warning("OCR result repr: %s", _short_repr(result))
                 return []
 
-            if result:
-                sample = result[0]
-                if isinstance(sample, dict):
-                    logger.info("OCR result sample keys: %s", list(sample.keys()))
-                else:
-                    logger.info("OCR result sample type: %s", type(sample))
+            if not result:
+                logger.warning("OCR returned empty result list")
+                return []
+
+            sample = result[0]
+            if isinstance(sample, dict):
+                logger.info("OCR result sample keys: %s", list(sample.keys()))
+            else:
+                logger.info("OCR result sample type: %s", type(sample))
 
             # Parse results
             ocr_lines = []
@@ -96,6 +113,10 @@ class OCRService:
                         page_result.get("data")
                         or page_result.get("res")
                         or page_result.get("lines")
+                        or page_result.get("result")
+                        or page_result.get("results")
+                        or page_result.get("ocr_result")
+                        or page_result.get("outputs")
                         or [page_result]
                     )
 
@@ -163,6 +184,16 @@ def _normalize_bbox(bbox_coords):
             x2, y2 = third[:2]
             return [float(x1), float(y1), float(x2 - x1), float(y2 - y1)]
     return None
+
+
+def _short_repr(value, limit: int = 800) -> str:
+    try:
+        text = repr(value)
+    except Exception:
+        return "<unrepresentable>"
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit]}..."
 
 
 def _parse_ocr_line(line_result):
