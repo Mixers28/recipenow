@@ -9,4 +9,4 @@ python-dotenv==1.0.0
 
 # OCR
 paddleocr[all]==3.3.2
-paddlepaddle==2.6.2
+paddlepaddle==3.0.0
