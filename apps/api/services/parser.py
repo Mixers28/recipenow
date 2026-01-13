@@ -77,6 +77,63 @@ class RecipeParser:
         "hrs",
     }
     SERVINGS_INDICATORS = {"serve", "serving", "servings", "yield", "portion", "people"}
+    STEP_VERBS = {
+        "add",
+        "bake",
+        "beat",
+        "bring",
+        "combine",
+        "cook",
+        "cover",
+        "drain",
+        "fold",
+        "heat",
+        "mix",
+        "place",
+        "pour",
+        "preheat",
+        "reduce",
+        "remove",
+        "return",
+        "roll",
+        "season",
+        "serve",
+        "simmer",
+        "stir",
+        "whisk",
+    }
+    NOISE_PHRASES = {
+        "nutrition",
+        "calories",
+        "kcal",
+        "protein",
+        "carbohydrate",
+        "carb",
+        "fat",
+        "fiber",
+        "fibre",
+        "sugar",
+        "sodium",
+        "dietary",
+        "healthy",
+        "nut-free",
+        "nut free",
+        "pregnancy",
+        "exercise",
+        "recovery",
+        "refuel",
+        "refueling",
+        "per serving",
+        "print",
+        "share",
+        "save",
+        "shopping list",
+        "shop",
+        "http",
+        "www.",
+        "copyright",
+        "©",
+    }
 
     def __init__(self):
         """Initialize parser with compiled regex patterns."""
@@ -88,6 +145,8 @@ class RecipeParser:
         self.time_pattern = re.compile(r"(\d+)\s*(minute|min|hour|hr|second|sec)", re.IGNORECASE)
         # Pattern for detecting servings
         self.servings_pattern = re.compile(r"(?:serve|serving|yield)s?\s*(?:of\s*)?(\d+)", re.IGNORECASE)
+        self.step_prefix_pattern = re.compile(r"^\s*(step\s*)?\d+[\).\:-]?\s+", re.IGNORECASE)
+        self.bullet_pattern = re.compile(r"^\s*[\-\*•]\s+")
 
     def parse(self, ocr_lines: List[OCRLineData], asset_id: str) -> dict:
         """
@@ -136,7 +195,7 @@ class RecipeParser:
         field_statuses = []
 
         # Extract title (usually first non-header line or detected via keywords)
-        title_result = self._extract_title(ocr_lines, sections.get("title_indices", []))
+        title_result = self._extract_title(ocr_lines, sections.get("title_indices", []), asset_id)
         if title_result:
             recipe["title"], span, status = title_result
             spans.append(span)
@@ -152,7 +211,10 @@ class RecipeParser:
 
         # Extract ingredients
         ingredient_results = self._extract_ingredients(
-            ocr_lines, sections.get("ingredients_indices", []), asset_id
+            ocr_lines,
+            sections.get("ingredients_indices", []),
+            sections.get("steps_indices", []),
+            asset_id,
         )
         recipe["ingredients"] = [r[0] for r in ingredient_results]
         spans.extend([r[1] for r in ingredient_results if r[1]])
@@ -236,7 +298,9 @@ class RecipeParser:
 
         return sections
 
-    def _extract_title(self, ocr_lines: List[OCRLineData], title_indices: List[int]) -> Optional[Tuple]:
+    def _extract_title(
+        self, ocr_lines: List[OCRLineData], title_indices: List[int], asset_id: str
+    ) -> Optional[Tuple]:
         """
         Extract recipe title from OCRLines.
 
@@ -261,14 +325,26 @@ class RecipeParser:
                     line = candidate
                     break
 
-        if not line.text.strip():
+        title_text = line.text.strip()
+        if not title_text or self._is_noise_line(title_text):
             return None
 
-        title_text = line.text.strip()
+        # Avoid long descriptive sentences as titles
+        if len(title_text) > 120 or (". " in title_text and len(title_text.split()) > 8):
+            for candidate in ocr_lines[:8]:
+                candidate_text = candidate.text.strip()
+                if not candidate_text:
+                    continue
+                if self._is_noise_line(candidate_text):
+                    continue
+                if len(candidate_text.split()) <= 8 and len(candidate_text) <= 80:
+                    line = candidate
+                    title_text = candidate_text
+                    break
 
         span = {
             "field_path": "title",
-            "asset_id": "TBD",  # Will be filled by caller
+            "asset_id": asset_id,
             "page": line.page,
             "bbox": line.bbox,
             "ocr_confidence": line.confidence,
@@ -283,7 +359,11 @@ class RecipeParser:
         return (title_text, span, status)
 
     def _extract_ingredients(
-        self, ocr_lines: List[OCRLineData], ingredient_indices: List[int], asset_id: str
+        self,
+        ocr_lines: List[OCRLineData],
+        ingredient_indices: List[int],
+        steps_indices: List[int],
+        asset_id: str,
     ) -> List[Tuple]:
         """
         Extract ingredients from OCRLines.
@@ -300,18 +380,30 @@ class RecipeParser:
 
         # Find section end (next section header or end of lines)
         end_idx = len(ocr_lines)
+        if steps_indices:
+            end_idx = min(end_idx, steps_indices[0])
 
         # Parse lines in ingredient section
         for idx in range(start_idx, end_idx):
             line = ocr_lines[idx]
             text = line.text.strip()
 
-            # Skip empty lines and section headers
-            if not text or any(ind in text.lower() for ind in self.STEPS_INDICATORS):
-                break
+            # Skip empty lines
+            if not text:
+                continue
 
-            # Skip if looks like a section header
-            if any(ind in text.lower() for ind in self.INGREDIENT_INDICATORS):
+            # Stop at next section header
+            if self._looks_like_header(text):
+                continue
+
+            if self._is_noise_line(text):
+                continue
+            lower_text = text.lower()
+            if lower_text.startswith("for ") or lower_text.startswith("for the "):
+                continue
+            if text.endswith(":"):
+                continue
+            if any(ind in lower_text for ind in self.TIME_INDICATORS) and re.search(r"\d", lower_text):
                 continue
 
             # Try to parse ingredient
@@ -433,12 +525,14 @@ class RecipeParser:
             if not text:
                 continue
 
-            # Skip if looks like a section header
-            if any(
-                ind in text.lower()
-                for ind in list(self.INGREDIENT_INDICATORS) + list(self.TITLE_INDICATORS)
-            ):
+            if self._looks_like_header(text):
                 break
+
+            if self._is_noise_line(text):
+                continue
+
+            if not self._is_step_candidate(text):
+                continue
 
             # Create step entry
             step = {"text": text}
@@ -459,6 +553,39 @@ class RecipeParser:
             steps.append((step, span, status))
 
         return steps
+
+    def _looks_like_header(self, text: str) -> bool:
+        lower_text = text.lower().strip().rstrip(":")
+        if len(lower_text) > 30:
+            return False
+        tokens = re.split(r"\s+", lower_text)
+        if not tokens:
+            return False
+        indicators = self.INGREDIENT_INDICATORS | self.STEPS_INDICATORS | self.TITLE_INDICATORS
+        if lower_text in indicators:
+            return True
+        if tokens[0] in indicators and len(tokens) <= 2:
+            return True
+        return False
+
+    def _is_noise_line(self, text: str) -> bool:
+        lower_text = text.lower()
+        if any(phrase in lower_text for phrase in self.NOISE_PHRASES):
+            return True
+        if len(lower_text.split()) <= 2 and lower_text in {"cook", "prep", "serve", "dietary"}:
+            return True
+        return False
+
+    def _is_step_candidate(self, text: str) -> bool:
+        lower_text = text.lower().strip()
+        if self.step_prefix_pattern.match(lower_text):
+            return True
+        if self.bullet_pattern.match(lower_text):
+            return True
+        first_word = re.split(r"[^a-zA-Z]+", lower_text)[0]
+        if first_word in self.STEP_VERBS:
+            return True
+        return False
 
     def _extract_servings(
         self, ocr_lines: List[OCRLineData], asset_id: str
