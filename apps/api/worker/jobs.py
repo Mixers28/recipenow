@@ -282,7 +282,7 @@ async def structure_recipe(
                     page=span.get("page"),
                     bbox=span.get("bbox"),
                     extracted_text=span.get("extracted_text"),
-                    confidence=span.get("confidence", 0.0),
+                    ocr_confidence=span.get("confidence", 0.0),
                     source_method=source_method,
                 )
                 db.add(source_span)

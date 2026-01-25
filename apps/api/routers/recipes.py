@@ -99,6 +99,7 @@ class SourceSpanResponse(BaseModel):
     bbox: List[int]
     ocr_confidence: float
     extracted_text: str
+    source_method: str = "ocr"
     created_at: Optional[str]
 
     class Config:
@@ -572,6 +573,7 @@ def list_spans(
                 bbox=s.bbox,
                 ocr_confidence=s.ocr_confidence,
                 extracted_text=s.extracted_text,
+                source_method=s.source_method if hasattr(s, 'source_method') else "ocr",
                 created_at=s.created_at.isoformat() if s.created_at else None,
             )
             for s in spans
