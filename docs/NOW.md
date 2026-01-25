@@ -32,12 +32,34 @@ Execute RecipeNow V1 implementation per SPEC.md: 6 sprints covering scaffolding,
 
 ## What We Are Working On Right Now
 
-### OCR Stability (Railway)
+### Sprint 2-3: OCR Enhancement + LLM Vision Fallback Implementation In Progress
 
-- [ ] **Fix PaddleOCR init:** handle `use_gpu` arg mismatch (retry without it).
-- [ ] **Ensure system deps:** libgl1 + libglib2.0-0 in API/worker images and redeploy.
-- [ ] **Verify OCR output:** confirm OCR lines > 0 and parser fills fields on re-upload.
-- [ ] **Confirm field statuses:** spans + FieldStatus created on parse.
+**Status:** Implementation underway. Foundational code changes complete, integration in progress.
+
+#### Completed:
+- ✅ SPEC.md: Two-stage OCR pipeline integrated as canonical specification.
+- ✅ SourceSpan model: `source_method: enum("ocr", "llm-vision")` field added.
+- ✅ OCRService: `_detect_and_correct_rotation()` method implemented (Tesseract voting + ImageMagick).
+- ✅ OCRService: `extract_text()` method updated with rotation detection integration.
+- ✅ Database migration: 002_add_source_method.sql created (adds source_method column with indexes).
+- ✅ LLMVisionService: Complete service with Ollama + LLaVA support (offline-first + cloud fallback).
+- ✅ Job implementations: Ingest, Structure, Normalize jobs with LLM fallback logic.
+- ✅ Requirements: Updated with httpx, anthropic, openai dependencies.
+
+#### In Progress:
+- 🔄 Testing rotation detection end-to-end with test images.
+- 🔄 Testing LLM vision extraction with Ollama + LLaVA-7B.
+- 🔄 Verify Structure Job LLM fallback trigger logic.
+- 🔄 Database schema validation (migration application).
+
+#### Next Steps:
+- Test OCR with rotated recipe card images.
+- Test LLM fallback when OCR yields sparse results.
+- Implement review UI source badges.
+- Sprint 4: Quality checks and normalization.
+
+- Sprint 4-5: CRUD + UI with source badges.
+- Sprint 6: Pantry & Match (unchanged).
 
 ### Sprint 6 – Pantry & Match
 

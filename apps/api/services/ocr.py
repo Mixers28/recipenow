@@ -1,11 +1,16 @@
 """
 OCR service using PaddleOCR for text extraction.
-Handles OCR processing and returns structured OCRLine data.
+Handles OCR processing with image preprocessing (orientation detection + rotation).
+Returns structured OCRLine data.
 """
 import logging
+import os
+import subprocess
+import tempfile
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import BinaryIO, List, Optional
+from pathlib import Path
+from typing import BinaryIO, List, Optional, Tuple
 from uuid import UUID
 
 logger = logging.getLogger(__name__)
@@ -22,14 +27,15 @@ class OCRLineData:
 
 
 class OCRService:
-    """Service for OCR processing using PaddleOCR."""
+    """Service for OCR processing using PaddleOCR with preprocessing."""
 
-    def __init__(self, use_gpu: bool = False, lang: str = "en"):
+    def __init__(self, use_gpu: bool = False, lang: str = "en", enable_rotation_detection: bool = True):
         """
         Initialize OCR service.
         Args:
             use_gpu: Use GPU acceleration (requires CUDA)
             lang: Language code (default: 'en')
+            enable_rotation_detection: Enable Tesseract orientation detection (default: True)
         """
         try:
             from paddleocr import PaddleOCR
@@ -45,31 +51,138 @@ class OCRService:
             )
             self.ocr = PaddleOCR(lang=lang)
         self.use_gpu = use_gpu
+        self.enable_rotation_detection = enable_rotation_detection
+
+    def _detect_and_correct_rotation(self, image_path: str) -> Tuple[str, int]:
+        """
+        Detect image orientation using Tesseract + confidence voting.
+        
+        Uses 3 thresholding methods and majority voting to determine best rotation.
+        Returns: (processed_image_path, rotation_degrees)
+        
+        Rotations: 0, 90, 180, 270 degrees.
+        """
+        if not self.enable_rotation_detection:
+            return image_path, 0
+        
+        try:
+            # Check if tesseract is available
+            result = subprocess.run(["which", "tesseract"], capture_output=True, check=False)
+            if result.returncode != 0:
+                logger.warning("Tesseract not available; skipping rotation detection")
+                return image_path, 0
+        except Exception as e:
+            logger.warning(f"Could not check for tesseract: {e}")
+            return image_path, 0
+        
+        votes = {}
+        
+        # Try 3 thresholding methods for robust detection
+        for method in [0, 1, 2]:
+            try:
+                result = subprocess.run(
+                    ["tesseract", image_path, "stdout", "--psm", "0", 
+                     "-c", f"thresholding_method={method}"],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+                
+                # Parse Tesseract output for Rotate and Orientation confidence
+                rotation = None
+                confidence = None
+                
+                for line in result.stdout.split('\n'):
+                    if 'Rotate:' in line:
+                        try:
+                            rotation = int(line.split()[-1])
+                        except (ValueError, IndexError):
+                            pass
+                    if 'Orientation confidence:' in line:
+                        try:
+                            confidence = float(line.split()[-1])
+                        except (ValueError, IndexError):
+                            pass
+                
+                # Only count if confidence >= 3 (SPEC.md threshold)
+                if rotation is not None and confidence is not None and confidence >= 3:
+                    votes[rotation] = votes.get(rotation, 0) + 1
+                    logger.debug(f"Tesseract method {method}: rotation={rotation}°, confidence={confidence}")
+                elif rotation is not None:
+                    logger.debug(f"Tesseract method {method}: rotation={rotation}°, confidence={confidence} (below threshold)")
+            
+            except subprocess.TimeoutExpired:
+                logger.warning(f"Tesseract method {method} timed out")
+            except Exception as e:
+                logger.warning(f"Tesseract method {method} failed: {e}")
+        
+        # Majority vote on rotation
+        if not votes:
+            logger.info("No confident rotation detection; proceeding with original orientation")
+            return image_path, 0
+        
+        best_rotation = max(votes, key=votes.get)
+        logger.info(f"Detected rotation: {best_rotation}° (votes: {votes})")
+        
+        # Apply rotation using ImageMagick
+        if best_rotation == 0:
+            return image_path, 0
+        
+        try:
+            rotated_path = str(Path(image_path).with_stem(f"{Path(image_path).stem}_rotated"))
+            subprocess.run(
+                ["convert", "-rotate", str(best_rotation), image_path, rotated_path],
+                check=True,
+                timeout=30,
+            )
+            logger.info(f"Applied {best_rotation}° rotation: {image_path} -> {rotated_path}")
+            return rotated_path, best_rotation
+        except subprocess.TimeoutExpired:
+            logger.warning(f"ImageMagick rotation timed out; using original image")
+            return image_path, 0
+        except Exception as e:
+            logger.warning(f"ImageMagick rotation failed: {e}; using original image")
+            return image_path, 0
 
     def extract_text(self, file_data: BinaryIO, asset_type: str = "image") -> List[OCRLineData]:
         """
-        Extract text from image/PDF using PaddleOCR.
+        Extract text from image/PDF using PaddleOCR with preprocessing.
+        
+        Steps:
+        1. Save to temp file
+        2. Detect and correct orientation (if image)
+        3. Run OCR
+        4. Parse results into OCRLineData
+        
         Args:
             file_data: File-like object (image or PDF)
             asset_type: 'image' or 'pdf'
         Returns:
             List of OCRLineData objects
         """
-        import tempfile
-
-        # Save to temp file (PaddleOCR works with file paths)
-        with tempfile.NamedTemporaryFile(suffix=".jpg" if asset_type == "image" else ".pdf", delete=False) as tmp:
-            tmp.write(file_data.read())
-            tmp_path = tmp.name
-
+        tmp_path = None
+        rotated_path = None
+        
         try:
-            # Run OCR (older PaddleOCR supports cls, newer pipelines do not)
-            try:
-                result = self.ocr.ocr(tmp_path, cls=True)
-            except TypeError as exc:
-                logger.warning("PaddleOCR.ocr() without cls due to error: %s", exc)
-                result = self.ocr.ocr(tmp_path)
-
+            # Step 1: Save to temp file
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
+                tmp_path = tmp.name
+                tmp.write(file_data.read())
+            
+            ocr_image_path = tmp_path
+            rotation_applied = 0
+            
+            # Step 2: Detect and correct orientation (if image)
+            if self.enable_rotation_detection and asset_type == "image":
+                ocr_image_path, rotation_applied = self._detect_and_correct_rotation(tmp_path)
+                if rotation_applied != 0:
+                    rotated_path = ocr_image_path
+                    logger.info(f"Rotation detection applied {rotation_applied}° to {tmp_path}")
+            
+            # Step 3: Run OCR
+            logger.debug(f"Running OCR on {ocr_image_path}")
+            result = self.ocr.ocr(ocr_image_path, cls=True)
+            
             if isinstance(result, tuple) and result:
                 result = result[0]
 
@@ -101,7 +214,7 @@ class OCRService:
             else:
                 logger.warning("OCR result sample type: %s", type(sample))
 
-            # Parse results
+            # Step 4: Parse results into OCRLineData
             ocr_lines = []
             for page_idx, page_result in enumerate(result):
                 if page_result is None:
@@ -148,15 +261,15 @@ class OCRService:
             return ocr_lines
 
         except Exception as e:
-            logger.error(f"OCR failed for {tmp_path}: {e}")
+            logger.error(f"OCR failed: {e}", exc_info=True)
             raise
 
         finally:
-            # Clean up temp file
-            import os
-
-            if os.path.exists(tmp_path):
+            # Clean up temp files
+            if tmp_path and os.path.exists(tmp_path):
                 os.unlink(tmp_path)
+            if rotated_path and rotated_path != tmp_path and os.path.exists(rotated_path):
+                os.unlink(rotated_path)
 
 
 def _get_line_value(line_result, keys: list[str]):

@@ -25,16 +25,19 @@
 
 ## Constraints & Invariants (NON-NEGOTIABLE)
 
-1. **Source-of-truth only:** If it is not in uploaded media, it is missing—not guessed.
+1. **Source-of-truth only:** All extracted data must come from the uploaded media. No inference or guessing values not visible in media.
+   - OCR extraction (PaddleOCR + preprocessing): primary method.
+   - Vision LLM fallback (Ollama + LLaVA): secondary method (same media, better reader). LLM extracts **only visible text**, not inferred values.
 2. **No silent inference:** Missing or ambiguous values become explicit questions or missing-field badges, not hidden assumptions.
-3. **Provenance per field:** Every extracted field carries one or more `SourceSpan` records (asset_id + bbox + confidence + extracted_text).
+3. **Provenance per field:** Every extracted field carries one or more `SourceSpan` records (asset_id + bbox + confidence + extracted_text + source_method).
+   - Source method: `"ocr"` or `"llm-vision"` (both read visible media; LLM used only when OCR fails).
 4. **User is final editor:** The Review UI is the primary workflow, not an "advanced option." Edits must flip `FieldStatus` and update/clear provenance.
 5. **Verification gating:** Title + ≥1 ingredient + ≥1 step required. Missing times/servings keep `needs_review` unless user explicitly confirms "unknown."
 6. **Parsing rules:**
-   - Parser may only use OCR text; do not invent quantities, units, or ingredients.
+   - Parser may only use text extracted from media (OCR or LLM vision); do not invent quantities, units, or ingredients.
    - If multiple candidates exist (e.g., two cooking temperatures), mark ambiguous → missing + create question.
    - `original_text` in ingredients is immutable; derived fields (`name_norm`, tags) can be overwritten by user.
-7. **Privacy:** Keep all assets private; no sharing, federation, or export sharing in V1.
+7. **Privacy:** Keep all assets private; no sharing, federation, or export sharing in V1. Vision LLM fallback runs offline (Ollama) or air-gapped (no external API by default).
 8. **API contracts:** Must match REST endpoints in "API (REST, V1)" section below.
 9. **Backward compatibility:** Do not delete existing scaffolding in `apps/`, `packages/`, `infra/`, or `docs/`. Extend in place.
 
@@ -46,15 +49,19 @@
 
 ```mermaid
 graph LR
-  A["Upload Media<br/>(image/PDF)"] --> B["Ingest Job<br/>Store + preprocess"]
-  B --> C["OCRLines stored<br/>with bbox + confidence"]
-  C --> D["Structure Job<br/>Constrained parse"]
-  D --> E["Recipe Draft<br/>+ SourceSpans<br/>+ FieldStatus"]
-  E --> F["Normalize Job<br/>name_norm + tags"]
-  F --> G["Review UI<br/>Split view<br/>Edit + Verify"]
-  G --> H{Status}
-  H -->|Draft| G
-  H -->|Verified| I["Pantry Match<br/>+ Shopping List"]
+  A["Upload Media<br/>(image/PDF)"] --> B["Ingest Job<br/>Rotation Detection<br/>+ OCR"]
+  B --> C["OCRLines stored<br/>with bbox + confidence<br/>+ source: ocr"]
+  C --> D["Structure Job<br/>Deterministic Parse"]
+  D --> E{Critical Fields<br/>Found?}
+  E -->|Yes| F["Recipe Draft<br/>+ SourceSpans<br/>+ FieldStatus"]
+  E -->|No| G["LLM Vision Fallback<br/>(Ollama + LLaVA)"]
+  G --> H["Merge LLM Results<br/>(source: llm-vision)"]
+  H --> F
+  F --> I["Normalize Job<br/>name_norm + tags"]
+  I --> J["Review UI<br/>Split view<br/>Source badges<br/>Edit + Verify"]
+  J --> K{Status}
+  K -->|Draft| J
+  K -->|Verified| L["Pantry Match<br/>+ Shopping List"]
 ```
 
 ### Core Services & Layers
@@ -144,7 +151,8 @@ asset_id: UUID
 page: int
 bbox: {x, y, w, h}
 ocr_confidence: float [0..1]
-extracted_text: String (the actual OCR text that was extracted)
+extracted_text: String (the actual OCR/LLM text that was extracted)
+source_method: enum("ocr", "llm-vision")  # How this field was extracted
 ```
 
 ### FieldStatus
@@ -179,29 +187,56 @@ created_at: DateTime
 
 **Steps:**
 1. Store original file (local disk or MinIO).
-2. Preprocess (optional: deskew, contrast adjustment).
-3. Run OCR (PaddleOCR or Tesseract) → generate OCRLines with bboxes + confidence.
+2. **Preprocess** (new):
+   - Detect image orientation using Tesseract with confidence voting (3 thresholding methods).
+   - Auto-rotate image to correct orientation.
+   - (Optional: deskew, contrast adjustment).
+3. Run OCR (PaddleOCR) → generate OCRLines with bboxes + confidence.
 4. Persist OCRLines linked to asset.
+5. Log rotation correction for audit.
 
 **Job trigger:** `POST /assets/upload` → enqueue ingest job.
+
+**Rotation Detection Details:**
+- Use Tesseract PSM 0 (orientation detection) with 3 thresholding methods (0, 1, 2).
+- Filter results by confidence > 3.
+- Majority vote on rotation (0°, 90°, 180°, 270°).
+- Apply rotation via ImageMagick before OCR.
+- Fallback: if no confident vote, proceed with original orientation.
 
 ### 2. Structure Job
 **Input:** OCRLines for a given asset
 **Output:** Recipe (draft) + SourceSpans + FieldStatus
 
 **Rules:**
-- Parser uses only OCR text; do NOT invent values.
+- Primary: Parser uses only OCR text; do NOT invent values.
+- Fallback: If critical fields missing (title, or no ingredients, or no steps), trigger **LLM Vision fallback** (Ollama + LLaVA-7B).
+  - LLM vision extracts structured recipe data from the **same media** (image).
+  - LLM is a better visual reader; does not infer/guess values.
+  - All LLM extractions marked with `source_method: "llm-vision"` in SourceSpans.
+  - If LLM also fails, fields remain `status: missing`.
 - If ambiguous (e.g., multiple temps), mark `status=missing` + create question note.
 
+**LLM Vision Fallback Trigger:**
+- After OCR parsing, count missing critical fields.
+- If missing: title OR (no ingredients) OR (no steps) → invoke LLM fallback.
+- LLM extracts: title, ingredients (with quantities/units), steps, times/servings.
+- Merge LLM results into recipe (with LLM source attribution).
+
 **Output fields:**
-- **Title:** best guess + SourceSpan (if found).
+- **Title:** best guess from OCR or LLM + SourceSpan (if found).
 - **Ingredients block:** detect block boundaries, extract lines, parse each as `{original_text, quantity?, unit?, optional?}` + SourceSpans.
 - **Steps block:** detect block, extract numbered/bulleted lines + SourceSpans.
 - **Times/Servings:** extract if explicitly present (look for keywords like "prep", "bake", "serves"); else missing.
 
-**FieldStatus:** Set to `extracted` for found fields, `missing` for absent ones.
+**FieldStatus:** Set to `extracted` for found fields (mark source_method: ocr or llm-vision), `missing` for absent ones.
 
 **Job trigger:** `POST /assets/{id}/structure` → enqueue structure job.
+
+**LLM Vision Implementation (Offline-First):**
+- Primary: Use Ollama + LLaVA-7B (offline, self-hosted, ~4.5 GB model).
+- Fallback: Optional cloud API (Claude 3 Haiku or GPT-4-Vision) if Ollama unavailable and `LLM_FALLBACK_ENABLED=true`.
+- All LLM results sourced as `"llm-vision"` in SourceSpans; user can see source in Review UI.
 
 ### 3. Normalize Job
 **Input:** Recipe ingredients
@@ -232,8 +267,9 @@ created_at: DateTime
 - **Right panel:** Editable recipe form (title, servings, times, ingredients, steps, tags, nutrition).
 - **Interaction:**
   - Clicking any field highlights the corresponding bbox on the left (if SourceSpan exists).
-  - Badge per field: `extracted` (green) / `user_entered` (blue) / `missing` (red) / `verified` (green checkmark).
-  - Edit a field → badge flips to `user_entered`, SourceSpan is cleared or marked "edited".
+  - **Badge per field:** `OCR` (blue) / `LLM Vision` (purple) / `User Entered` (green) / `Missing` (red).
+    - Badges show data source: OCR extraction, LLM Vision fallback, or user-edited.
+  - Edit a field → badge flips to `User Entered`, SourceSpan is cleared or marked "edited".
   - Undo/redo for edits (optional, but nice).
 - **Verify button:** Gated by validation (see "Validation Rules" below).
 
@@ -262,6 +298,71 @@ A recipe may be marked `verified` only if:
 **After verification:**
 - `status` → `verified`.
 - All fields become read-only (except future "edit in verified" mode, not in V1).
+
+---
+
+## OCR Enhancement & LLM Vision Fallback (V1)
+
+### Motivation
+Standard OCR (PaddleOCR) can fail due to:
+- **Rotated/skewed images:** Recipe cards scanned at odd angles.
+- **Poor image quality:** Low contrast, shadows, small text.
+- **Complex layouts:** Multi-column, text overlapping images.
+
+RecipeNow uses a **two-stage approach** to maximize extraction:
+
+### Stage 1: Image Preprocessing + PaddleOCR
+1. **Orientation Detection** (Tesseract + voting):
+   - Tesseract PSM 0 with 3 thresholding methods (0, 1, 2).
+   - Consensus voting on rotation (0°, 90°, 180°, 270°).
+   - Apply rotation via ImageMagick.
+   - Proven: Handles ~99% of rotation cases (Carl Pearson: 152/152 recipe cards).
+   
+2. **OCR Extraction** (PaddleOCR):
+   - Extract text lines with bboxes and confidence scores.
+   - Create OCRLines records.
+
+3. **Deterministic Parsing**:
+   - Use keyword heuristics to detect: title block, ingredients block, steps block.
+   - Extract structured fields: title, ingredients, steps, times, servings.
+   - Create Recipe + SourceSpans + FieldStatus records.
+
+### Stage 2: LLM Vision Fallback (If OCR Insufficient)
+**Trigger:** After deterministic parsing, if critical fields are missing:
+- No title extracted, OR
+- Zero ingredients extracted, OR
+- Zero steps extracted.
+
+**Action:**
+- Invoke vision LLM (Ollama + LLaVA-7B offline, or cloud API if opted-in).
+- LLM reads the **same image** and extracts structured recipe data.
+- LLM is a better visual reader; not inferring/guessing values.
+- All LLM extractions tagged as `source_method: "llm-vision"` in SourceSpans.
+
+**Why This Respects Invariant 1 ("Source-of-Truth Only"):**
+- Both OCR and LLM read **visible text from the uploaded media**.
+- Neither infers or guesses values.
+- LLM is just a better reader than PaddleOCR for certain image conditions.
+- User always sees source: OCR, LLM-Vision, or manually entered.
+
+### Configuration & Privacy
+- **Offline-first:** Ollama + LLaVA-7B runs locally (4.5 GB model, downloads once).
+- **Cloud opt-in:** Optional fallback to Claude 3 Haiku or GPT-4-Vision (configurable via `LLM_FALLBACK_ENABLED`, `LLM_FALLBACK_PROVIDER`).
+- **Audit trail:** SourceSpans record which method extracted each field.
+- **User control:** Review UI badges show field source; users can edit/clear any field.
+
+### System Requirements
+- **Tesseract:** `tesseract-ocr` system binary (for orientation detection).
+- **ImageMagick:** `convert` command (for rotation).
+- **Ollama + LLaVA (optional):** ~8 GB RAM, ~4.5 GB disk for model (offline extraction).
+- **Cloud API key (optional):** `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` if using cloud fallback.
+
+### Metrics & Success Criteria
+- ✅ 90%+ of recipes extract title + ≥1 ingredient + ≥1 step without manual intervention.
+- ✅ Rotated images automatically corrected before OCR.
+- ✅ LLM fallback triggers only when OCR insufficient; not default path.
+- ✅ Every field shows source badge: "OCR", "LLM Vision", or "User Entered".
+- ✅ Zero privacy regression: Ollama default, cloud APIs optional + logged.
 
 ---
 
@@ -407,7 +508,7 @@ Before finalizing any library/framework-specific decision, **the Coder MUST:**
 ---
 
 ### Sprint 2: Ingest & OCR
-**Goal:** Accept file uploads and generate OCRLines.
+**Goal:** Accept file uploads, detect orientation, and generate OCRLines.
 
 #### Ticket 2.1: Implement file upload and MediaAsset creation
 - **AC:** `POST /assets/upload` accepts multipart/form-data (file + optional source_label).
@@ -416,31 +517,39 @@ Before finalizing any library/framework-specific decision, **the Coder MUST:**
 - **AC:** sha256 content hash is computed and stored.
 - **AC:** Integration test: upload → verify file exists and asset record is in DB.
 
-#### Ticket 2.2: Implement OCR job and enqueue mechanism
-- **AC:** Ingest job (triggered by upload) calls OCR library (PaddleOCR or Tesseract per Context7).
+#### Ticket 2.2: Implement OCR job with orientation detection and enqueue mechanism
+- **AC:** Ingest job (triggered by upload) **detects and corrects image orientation** using Tesseract + voting.
+- **AC:** Applies rotation via ImageMagick if detected.
+- **AC:** Calls OCR library (PaddleOCR per Context7).
 - **AC:** OCRLines are created with bbox + confidence for each detected line/token.
 - **AC:** `POST /assets/{id}/ocr` re-enqueues OCR with optional settings override.
-- **AC:** Integration test: upload → ingest job runs → OCRLines appear in DB.
+- **AC:** Integration test: upload rotated image → ingest job corrects rotation → OCRLines extracted correctly.
+- **AC:** Logs rotation detection and correction for audit trail.
 
 ---
 
 ### Sprint 3: Structure & Normalize
-**Goal:** Parse OCRLines into Recipe drafts with provenance.
+**Goal:** Parse OCRLines into Recipe drafts with provenance; add LLM vision fallback.
 
-#### Ticket 3.1: Implement structure job (constrained parse)
+#### Ticket 3.1: Implement structure job (constrained parse + LLM vision fallback)
 - **AC:** Structure job reads OCRLines for an asset.
 - **AC:** Parser detects: title block, ingredients block, steps block.
-- **AC:** For each field, create a Recipe record + SourceSpans + FieldStatus entries.
+- **AC:** For each field, create a Recipe record + SourceSpans (with `source_method: "ocr"`) + FieldStatus entries.
 - **AC:** SourceSpans correctly reference OCRLines with bbox and confidence.
 - **AC:** FieldStatus is set to `extracted` for found fields, `missing` for absent.
+- **AC:** **If critical fields missing** (no title OR no ingredients OR no steps):
+  - Trigger LLM vision fallback (Ollama + LLaVA-7B by default, cloud API if `LLM_FALLBACK_ENABLED=true`).
+  - LLM reads the same image and extracts structured recipe data.
+  - Merge LLM results into recipe (all LLM fields marked `source_method: "llm-vision"` in SourceSpans).
+  - Log which fields were populated by LLM vs. OCR.
 - **AC:** `POST /assets/{id}/structure` enqueues structure job.
-- **AC:** Integration test: OCRLines → structure job → Recipe with SourceSpans + FieldStatus.
+- **AC:** Integration test: Poor OCR image → OCR yields no ingredients → LLM fallback extracts ingredients → Recipe populated with LLM-Vision source tags.
 
 #### Ticket 3.2: Implement normalize job
 - **AC:** Normalize job computes `name_norm` for each ingredient without altering `original_text`.
 - **AC:** `name_norm` is marked as derived (not extracted).
 - **AC:** Auto-run after structure job; also available via `POST /recipes/{id}/normalize`.
-- **AC:** Test: ingredient "2 cups all-purpose flour" → `name_norm: flour`, `original_text` unchanged.
+- **AC:** Test: ingredient "2 cups all-purpose flour" (OCR or LLM) → `name_norm: flour`, `original_text` unchanged.
 
 ---
 
@@ -455,7 +564,7 @@ Before finalizing any library/framework-specific decision, **the Coder MUST:**
 
 #### Ticket 4.2: Implement Recipe CRUD endpoints
 - **AC:** `GET /recipes?query=&status=&tags=` returns filtered list with pagination.
-- **AC:** `GET /recipes/{id}` returns full recipe + FieldStatuses + SourceSpans.
+- **AC:** `GET /recipes/{id}` returns full recipe + FieldStatuses + SourceSpans (including `source_method: ocr or llm-vision`).
 - **AC:** `PATCH /recipes/{id}` accepts field updates, creates/updates FieldStatus records, updates/clears SourceSpans.
 - **AC:** `POST /recipes/{id}/verify` validates (title, ≥1 ingredient, ≥1 step) and sets status to verified if pass.
 - **AC:** `DELETE /recipes/{id}` soft-deletes (sets deleted_at).
@@ -480,10 +589,11 @@ Before finalizing any library/framework-specific decision, **the Coder MUST:**
 - **AC:** Left: image/PDF viewer with zoom, pan, crop (use react-pdf or similar).
 - **AC:** Right: editable form with fields for title, servings, times, ingredients (list), steps (list), tags, nutrition.
 - **AC:** Clicking a field highlights bbox on the left (if SourceSpan exists).
-- **AC:** Badges per field: extracted (green), user_entered (blue), missing (red).
-- **AC:** Edit a field → API call to `PATCH /recipes/{id}`, badge updates.
+- **AC:** **Badges per field:** `OCR` (blue), `LLM Vision` (purple), `User Entered` (green), `Missing` (red).
+  - Badges display `source_method` from SourceSpans: "ocr" → "OCR", "llm-vision" → "LLM Vision", user edit → "User Entered".
+- **AC:** Edit a field → API call to `PATCH /recipes/{id}`, badge updates to "User Entered", SourceSpan clears.
 - **AC:** Verify button gated by validation; clicking runs `POST /recipes/{id}/verify`.
-- **AC:** Integration test: upload → review → verify → recipe marked verified.
+- **AC:** Integration test: upload → review → verify → recipe marked verified with source badges visible.
 
 ---
 
@@ -519,9 +629,11 @@ Before finalizing any library/framework-specific decision, **the Coder MUST:**
 ### Open Questions
 1. **Job queue:** Celery (robust, Redis/RabbitMQ required) vs RQ (lighter, Redis) vs Arq (async, newer)? → **Resolve with Context7.**
 2. **OCR library:** PaddleOCR (better for messy) vs Tesseract (lighter)? → **Resolve with Context7.**
-3. **Auth mode:** Single-user or multi-user with local accounts? → **Ask user before Sprint 0.4.**
-4. **Storage:** Local disk (simpler) or MinIO (more scalable)? → **Default to local disk; allow MinIO config.**
-5. **Image processing:** Deskew/contrast preprocessing needed? → **Optional in Ingest job; add if needed after V1 testing.**
+3. **LLM Vision provider:** Ollama + LLaVA-7B (offline, ~4.5 GB) vs Claude Haiku (cloud, cheaper) vs GPT-4-Vision (cloud, better)?
+   - **Recommendation:** Default to Ollama (privacy-first, self-hosted). Allow cloud fallback via config (`LLM_FALLBACK_PROVIDER`, `LLM_FALLBACK_ENABLED`).
+4. **Auth mode:** Single-user or multi-user with local accounts? → **Ask user before Sprint 0.4.**
+5. **Storage:** Local disk (simpler) or MinIO (more scalable)? → **Default to local disk; allow MinIO config.**
+6. **Image processing:** Deskew/contrast preprocessing needed? → **Optional in Ingest job; add if needed after V1 testing.**
 
 ---
 

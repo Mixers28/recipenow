@@ -73,7 +73,7 @@ class Recipe(Base):
 
 
 class SourceSpan(Base):
-    """Provenance link: maps a recipe field to its OCR source."""
+    """Provenance link: maps a recipe field to its OCR or LLM-Vision source."""
     __tablename__ = "source_spans"
 
     id: Mapped[UUID] = mapped_column(SQLAUUID, primary_key=True)
@@ -84,11 +84,13 @@ class SourceSpan(Base):
     bbox: Mapped[list] = mapped_column(JSON, nullable=False)
     ocr_confidence: Mapped[float] = mapped_column(Float, default=0.0)
     extracted_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_method: Mapped[str] = mapped_column(String(20), default="ocr")  # "ocr" or "llm-vision"
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
     __table_args__ = (
         Index("ix_source_spans_recipe_field", "recipe_id", "field_path"),
         Index("ix_source_spans_asset_id", "asset_id"),
+        Index("ix_source_spans_source_method", "source_method"),
     )
 
 
