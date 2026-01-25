@@ -25,4 +25,4 @@ httpx==0.27.0
 
 # LLM Vision (optional - required for LLM fallback)
 anthropic==0.21.0
-openai==1.30.0
+openai>=1.63.0
