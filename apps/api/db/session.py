@@ -20,12 +20,17 @@ else:
     SYNC_DATABASE_URL = DATABASE_URL
     ASYNC_DATABASE_URL = DATABASE_URL
 
+# Disable prepared statements for Supabase transaction-mode pooler compatibility
+# See: https://supabase.com/docs/guides/database/connecting-to-postgres#transaction-pooler
+CONNECT_ARGS = {"prepare_threshold": 0}
+
 # Create sync engine (for background jobs and CLI)
 engine = create_engine(
     SYNC_DATABASE_URL,
     echo=os.getenv("SQL_ECHO", "false").lower() == "true",
     pool_size=10,
     max_overflow=20,
+    connect_args=CONNECT_ARGS,
 )
 
 # Create async engine (for FastAPI)
@@ -34,6 +39,7 @@ async_engine = create_async_engine(
     echo=os.getenv("SQL_ECHO", "false").lower() == "true",
     pool_size=10,
     max_overflow=20,
+    connect_args=CONNECT_ARGS,
 )
 
 # Session factories

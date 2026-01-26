@@ -447,6 +447,10 @@ class RecipeParser:
 
         start_idx, end_idx = ingredient_range
 
+        # Handle spatial extraction for two-column layouts (signaled by (-1, -1))
+        if start_idx == -1 and end_idx == -1:
+            return self._extract_ingredients_spatial(ocr_lines, asset_id)
+
         # Parse lines in ingredient section
         for idx in range(start_idx, end_idx):
             line = ocr_lines[idx]
@@ -496,6 +500,89 @@ class RecipeParser:
 
                 ingredients.append((ingredient, span, status))
 
+        return ingredients
+
+    def _extract_ingredients_spatial(
+        self,
+        ocr_lines: List[OCRLineData],
+        asset_id: str,
+    ) -> List[Tuple]:
+        """
+        Extract ingredients using spatial (X-coordinate) filtering for two-column layouts.
+        In two-column layouts, ingredients typically appear in the left column (lower X values).
+        """
+        ingredients = []
+
+        # Calculate X-coordinate statistics to detect columns
+        x_coords = [line.bbox[0] for line in ocr_lines if line.bbox]
+        if not x_coords:
+            return ingredients
+
+        # Find column separator - typically there's a gap between left and right columns
+        # Use median X as a rough column separator
+        sorted_x = sorted(x_coords)
+        median_x = sorted_x[len(sorted_x) // 2]
+        # Assume left column is anything with X < 200 (typical ingredient column)
+        left_column_threshold = min(200, median_x * 0.8)
+
+        logger.info(f"Spatial extraction: X threshold={left_column_threshold}, median X={median_x}")
+
+        for idx, line in enumerate(ocr_lines):
+            # Only consider lines in the left column
+            if not line.bbox or line.bbox[0] > left_column_threshold:
+                continue
+
+            text = line.text.strip()
+            if not text:
+                continue
+
+            # Skip section headers
+            if self._looks_like_header(text):
+                continue
+
+            # Skip noise lines
+            if self._is_noise_line(text):
+                continue
+
+            # Skip sub-headers like "For the meatballs"
+            lower_text = text.lower()
+            if lower_text.startswith("for ") or lower_text.startswith("for the "):
+                continue
+            if text.endswith(":"):
+                continue
+
+            # Skip time-related lines
+            if any(ind in lower_text for ind in self.TIME_INDICATORS) and re.search(r"\d", lower_text):
+                continue
+
+            # Skip lines that look like steps
+            if self._is_step_candidate(text):
+                continue
+
+            # Must look like an ingredient
+            if not self._looks_like_ingredient(text):
+                continue
+
+            # Parse the ingredient
+            ingredient = self._parse_ingredient_line(text)
+            if ingredient:
+                ingredient["original_text"] = text
+                span = {
+                    "field_path": f"ingredients[{len(ingredients)}].original_text",
+                    "asset_id": asset_id,
+                    "page": line.page,
+                    "bbox": line.bbox,
+                    "confidence": line.confidence,
+                    "extracted_text": text,
+                }
+                status = {
+                    "field_path": f"ingredients[{len(ingredients)}].original_text",
+                    "status": "extracted",
+                    "notes": None,
+                }
+                ingredients.append((ingredient, span, status))
+
+        logger.info(f"Spatial extraction found {len(ingredients)} ingredients")
         return ingredients
 
     def _parse_ingredient_line(self, text: str) -> Optional[dict]:
@@ -694,13 +781,11 @@ class RecipeParser:
                 if steps_indices[0] > ingredient_indices[0]:
                     end_idx = steps_indices[0]
                 else:
-                    # Steps header is before ingredients, so scan forward from ingredients
-                    # to find where ingredients end (look for steps starting or next header)
-                    end_idx = len(ocr_lines)
-                    for idx in range(start_idx, len(ocr_lines)):
-                        if self._is_step_candidate(ocr_lines[idx].text):
-                            end_idx = idx
-                            break
+                    # Two-column layout detected: steps header before ingredients header
+                    # Instead of using a simple range, mark this as a spatial extraction case
+                    # Return a special indicator (negative range) that triggers spatial extraction
+                    logger.info(f"Two-column layout detected: steps at {steps_indices[0]}, ingredients at {ingredient_indices[0]}")
+                    return (-1, -1)  # Signal for spatial extraction
             else:
                 end_idx = len(ocr_lines)
 
