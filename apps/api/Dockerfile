@@ -21,15 +21,3 @@ COPY . .
 
 # Run FastAPI with uvicorn
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
-
-# In docker-compose.yml (infra/docker-compose.yml):
-services:
-  ollama:
-    image: ollama/ollama:latest
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama-data:/root/.ollama
-    command: ollama serve
-
-# API connects to: http://ollama:11434 (internal Docker network)
