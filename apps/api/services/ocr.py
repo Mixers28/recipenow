@@ -181,7 +181,7 @@ class OCRService:
             
             # Step 3: Run OCR
             logger.debug(f"Running OCR on {ocr_image_path}")
-            result = self.ocr.ocr(ocr_image_path, cls=True)
+            result = self.ocr.ocr(ocr_image_path)
             
             if isinstance(result, tuple) and result:
                 result = result[0]
