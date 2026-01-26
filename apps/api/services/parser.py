@@ -215,7 +215,9 @@ class RecipeParser:
 
         # Detect recipe sections
         sections = self._detect_sections(ocr_lines)
-        logger.debug(f"Detected sections: {sections}")
+        logger.info(f"Detected sections: {sections}")
+        logger.info(f"Ingredients indices: {sections.get('ingredients_indices', [])}")
+        logger.info(f"Steps indices: {sections.get('steps_indices', [])}")
 
         # Extract fields from sections
         recipe = {
@@ -344,13 +346,13 @@ class RecipeParser:
                 ind in lower_text for ind in self.INGREDIENT_INDICATORS
             ):
                 sections["ingredients_indices"].append(i)
-                logger.debug(f"Found ingredients header at line {i}: '{line.text[:50]}'")
+                logger.info(f"Found ingredients header at line {i}: '{line.text[:50]}'")
 
             if self._looks_like_header(lower_text) and any(
                 ind in lower_text for ind in self.STEPS_INDICATORS
             ):
                 sections["steps_indices"].append(i)
-                logger.debug(f"Found steps header at line {i}: '{line.text[:50]}'")
+                logger.info(f"Found steps header at line {i}: '{line.text[:50]}'")
 
             if self._looks_like_header(lower_text) and any(
                 ind in lower_text for ind in self.TITLE_INDICATORS
@@ -685,7 +687,28 @@ class RecipeParser:
     ) -> Optional[Tuple[int, int]]:
         if ingredient_indices:
             start_idx = ingredient_indices[0] + 1
-            end_idx = steps_indices[0] if steps_indices else len(ocr_lines)
+            # Handle case where steps header appears before ingredients header in document order
+            # (e.g., two-column layouts where "Method" appears above "Ingredients" in Y-sort)
+            if steps_indices:
+                # Only use steps_indices[0] as end if it comes AFTER the ingredient header
+                if steps_indices[0] > ingredient_indices[0]:
+                    end_idx = steps_indices[0]
+                else:
+                    # Steps header is before ingredients, so scan forward from ingredients
+                    # to find where ingredients end (look for steps starting or next header)
+                    end_idx = len(ocr_lines)
+                    for idx in range(start_idx, len(ocr_lines)):
+                        if self._is_step_candidate(ocr_lines[idx].text):
+                            end_idx = idx
+                            break
+            else:
+                end_idx = len(ocr_lines)
+
+            # Validate range
+            if start_idx >= end_idx:
+                logger.warning(f"Invalid ingredient range: start={start_idx}, end={end_idx}. Ingredients header at {ingredient_indices[0]}, steps header at {steps_indices}")
+                return None
+
             return (start_idx, end_idx)
 
         start_idx = None
@@ -734,7 +757,11 @@ class RecipeParser:
         ingredient_range: Optional[Tuple[int, int]],
     ) -> Optional[int]:
         if steps_indices:
-            return steps_indices[0] + 1
+            start_candidate = steps_indices[0] + 1
+            # Skip past any headers immediately following the steps header
+            while start_candidate < len(ocr_lines) and self._looks_like_header(ocr_lines[start_candidate].text):
+                start_candidate += 1
+            return start_candidate if start_candidate < len(ocr_lines) else None
 
         start_idx = ingredient_range[1] if ingredient_range else 0
         for idx in range(start_idx, len(ocr_lines)):
