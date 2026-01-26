@@ -269,6 +269,11 @@ class RecipeParser:
                 ingredient_results = fallback_results
 
         if not ingredient_results:
+            logger.warning(
+                f"No ingredients extracted for asset {asset_id}. "
+                f"Ingredient indices: {sections.get('ingredients_indices', [])}, "
+                f"Ingredient range: {ingredient_range}"
+            )
             field_statuses.append(
                 {
                     "field_path": "ingredients",
@@ -339,16 +344,19 @@ class RecipeParser:
                 ind in lower_text for ind in self.INGREDIENT_INDICATORS
             ):
                 sections["ingredients_indices"].append(i)
+                logger.debug(f"Found ingredients header at line {i}: '{line.text[:50]}'")
 
             if self._looks_like_header(lower_text) and any(
                 ind in lower_text for ind in self.STEPS_INDICATORS
             ):
                 sections["steps_indices"].append(i)
+                logger.debug(f"Found steps header at line {i}: '{line.text[:50]}'")
 
             if self._looks_like_header(lower_text) and any(
                 ind in lower_text for ind in self.TITLE_INDICATORS
             ):
                 sections["title_indices"].append(i)
+                logger.debug(f"Found title header at line {i}: '{line.text[:50]}'")
 
         # If no explicit indicators found, use heuristics
         if not sections["title_indices"] and ocr_lines:
@@ -619,15 +627,21 @@ class RecipeParser:
 
     def _looks_like_header(self, text: str) -> bool:
         lower_text = text.lower().strip().rstrip(":")
-        if len(lower_text) > 30:
+        # Relaxed: allow up to 50 chars (was 30) for headers with badges/metadata
+        if len(lower_text) > 50:
             return False
         tokens = re.split(r"\s+", lower_text)
         if not tokens:
             return False
         indicators = self.INGREDIENT_INDICATORS | self.STEPS_INDICATORS | self.TITLE_INDICATORS
+        # Exact match (e.g., "ingredients")
         if lower_text in indicators:
             return True
-        if tokens[0] in indicators and len(tokens) <= 2:
+        # First word match with <= 3 tokens (was 2)
+        if tokens[0] in indicators and len(tokens) <= 3:
+            return True
+        # Check if any indicator word appears in the text (new)
+        if any(ind in lower_text for ind in indicators):
             return True
         return False
 
