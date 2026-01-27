@@ -518,23 +518,37 @@ class RecipeParser:
         if not x_coords:
             return ingredients
 
-        # Find column separator - typically there's a gap between left and right columns
-        # Use median X as a rough column separator
-        sorted_x = sorted(x_coords)
+        # Find column separator using gap detection
+        # In two-column layouts, there's typically a large gap between columns
+        sorted_x = sorted(set(x_coords))  # unique X coords
         median_x = sorted_x[len(sorted_x) // 2]
-        # Assume left column is anything with X < 200 (typical ingredient column)
-        left_column_threshold = min(200, median_x * 0.8)
 
-        logger.info(f"Spatial extraction: X threshold={left_column_threshold}, median X={median_x}")
+        # Find the largest gap in X coordinates (indicates column separator)
+        max_gap = 0
+        gap_position = median_x
+        for i in range(len(sorted_x) - 1):
+            gap = sorted_x[i + 1] - sorted_x[i]
+            if gap > max_gap and gap > 20:  # Gap must be significant (>20 pixels)
+                max_gap = gap
+                gap_position = sorted_x[i] + gap // 2  # Middle of the gap
+
+        # Use the gap position as column separator, or fall back to median
+        left_column_threshold = gap_position if max_gap > 20 else min(300, median_x * 0.9)
+
+        logger.info(f"Spatial extraction: X threshold={left_column_threshold}, median X={median_x}, max gap={max_gap} at {gap_position}")
 
         for idx, line in enumerate(ocr_lines):
             # Only consider lines in the left column
             if not line.bbox or line.bbox[0] > left_column_threshold:
+                if line.bbox:
+                    logger.debug(f"Skipping right column text at X={line.bbox[0]}: '{line.text[:50]}'")
                 continue
 
             text = line.text.strip()
             if not text:
                 continue
+
+            logger.debug(f"Considering left column text at X={line.bbox[0]}: '{text[:50]}'")
 
             # Skip section headers
             if self._looks_like_header(text):
