@@ -70,8 +70,9 @@ Execute RecipeNow V1 implementation per SPEC.md: 6 sprints covering scaffolding,
 #### Current Status:
 - ✅ Railway backend: All dependencies resolved, API endpoints operational
 - ✅ Vercel frontend: Deployed and communicating with backend
-- ✅ Git history: All commits pushed to origin/main (f4269ba → c31ab5b → 4217ff1 → 653952d)
+- ✅ Git history: Commits ready (6d6c04f → 0a3d923 → 2f7d56a → e51252f)
 - ✅ Production monitoring: Watching for additional errors
+- ✅ Column detection improved: Gap-based detection for better two-column extraction
 
 #### Pending Tasks:
 - ⚠️ **URGENT:** Enable async jobs in Railway (follow docs/RAILWAY_ASYNC_JOBS_SETUP.md)
