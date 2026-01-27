@@ -144,39 +144,8 @@ export default function ReviewPage() {
         </div>
       )}
 
-      {/* Desktop: Split View */}
-      <div className="hidden lg:grid grid-cols-2 gap-6 h-screen -mb-8">
-        {/* Left: Image Viewer */}
-        <div className="overflow-hidden rounded-lg">
-          <Suspense fallback={<SkeletonImageViewer />}>
-            <ImageViewer
-              imageUrl={imageUrl}
-              spans={spans}
-              highlightedFieldPath={highlightedField}
-              onBboxClick={handleBboxClick}
-            />
-          </Suspense>
-        </div>
-
-        {/* Right: Recipe Form */}
-        <div className="overflow-hidden rounded-lg">
-          <Suspense fallback={<SkeletonRecipeForm />}>
-            <RecipeForm
-              recipe={recipe}
-              fieldStatuses={fieldStatuses}
-              spans={spans}
-              onUpdate={handleUpdate}
-              onVerify={handleVerify}
-              loading={loading || verifyLoading}
-              highlightedField={highlightedField}
-              onFieldClick={handleFieldClick}
-            />
-          </Suspense>
-        </div>
-      </div>
-
-      {/* Mobile: Tabbed View */}
-      <div className="lg:hidden h-[calc(100vh-200px)]">
+      {/* Tabbed View (All screen sizes) */}
+      <div className="h-[calc(100vh-200px)]">
         <Tabs
           tabs={[
             {
@@ -189,11 +158,7 @@ export default function ReviewPage() {
                       imageUrl={imageUrl}
                       spans={spans}
                       highlightedFieldPath={highlightedField}
-                      onBboxClick={(bbox, fieldPath) => {
-                        handleBboxClick(bbox, fieldPath)
-                        // Auto-switch to form tab when bbox clicked
-                        // This would require exposing tab switching via context
-                      }}
+                      onBboxClick={handleBboxClick}
                     />
                   </Suspense>
                 </div>
@@ -201,7 +166,7 @@ export default function ReviewPage() {
             },
             {
               id: 'form',
-              label: '📝 Form',
+              label: '📝 Recipe',
               content: (
                 <div className="h-full overflow-y-auto">
                   <Suspense fallback={<SkeletonRecipeForm />}>
