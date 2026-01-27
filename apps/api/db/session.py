@@ -30,6 +30,7 @@ engine = create_engine(
     echo=os.getenv("SQL_ECHO", "false").lower() == "true",
     pool_size=10,
     max_overflow=20,
+    pool_pre_ping=True,  # Verify connections before using them
     connect_args=CONNECT_ARGS,
 )
 
@@ -39,6 +40,7 @@ async_engine = create_async_engine(
     echo=os.getenv("SQL_ECHO", "false").lower() == "true",
     pool_size=10,
     max_overflow=20,
+    pool_pre_ping=True,  # Verify connections before using them
     connect_args=CONNECT_ARGS,
 )
 
