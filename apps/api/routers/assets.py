@@ -1,6 +1,7 @@
 """
 Assets router: upload, retrieve, and re-process recipe images/PDFs.
 """
+import asyncio
 import logging
 from io import BytesIO
 from typing import Optional
@@ -22,6 +23,9 @@ from services.storage import compute_sha256, get_storage_backend
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+# OCR timeout in seconds - prevent Railway from killing the process
+OCR_TIMEOUT_SECONDS = 90
+
 
 class AssetUploadResponse(BaseModel):
     """Response for asset upload."""
@@ -31,6 +35,8 @@ class AssetUploadResponse(BaseModel):
     storage_path: str
     sha256: str
     job_id: Optional[str] = None
+    ocr_status: Optional[str] = None  # "completed", "timeout", "failed", "queued"
+    warning: Optional[str] = None
 
 
 class AssetResponse(BaseModel):
@@ -108,16 +114,16 @@ async def upload_asset(
                 status="draft",
             )
             # Re-run OCR/parse to populate the new recipe using the existing asset
-            try:
-                _run_ocr_sync(db, str(existing.id))
-            except Exception as parse_err:
-                logger.error(f"Failed to repopulate recipe from existing asset {existing.id}: {parse_err}")
+            ocr_result = await _run_ocr_sync_with_timeout(db, str(existing.id))
+
             return AssetUploadResponse(
                 asset_id=str(existing.id),
                 recipe_id=str(recipe.id),
                 storage_path=existing.storage_path,
                 sha256=existing.sha256,
                 source_label=existing.source_label,
+                ocr_status=ocr_result.get("status"),
+                warning=ocr_result.get("error") if not ocr_result.get("success") else None,
             )
 
         # Store file
@@ -145,6 +151,9 @@ async def upload_asset(
 
         # Enqueue ingest job (OCR) or run synchronously if async jobs disabled
         job_id = None
+        ocr_status = None
+        warning = None
+
         if settings.ENABLE_ASYNC_JOBS:
             try:
                 from arq import create_pool
@@ -152,21 +161,25 @@ async def upload_asset(
                 redis_pool = await create_pool(settings.REDIS_URL)
                 job = await redis_pool.enqueue_job("ingest_job", str(asset.id), use_gpu=False)
                 job_id = job.job_id if job else None
+                ocr_status = "queued"
                 logger.info(f"Asset uploaded: {asset.id}, queued async job: {job_id}")
             except Exception as e:
                 logger.warning(f"Failed to enqueue async job, falling back to sync OCR: {e}")
-                # Fall back to synchronous OCR
-                try:
-                    _run_ocr_sync(db, str(asset.id))
-                except Exception as ocr_error:
-                    logger.error(f"Synchronous OCR failed: {ocr_error}", exc_info=True)
+                # Fall back to synchronous OCR with timeout
+                ocr_result = await _run_ocr_sync_with_timeout(db, str(asset.id))
+                ocr_status = ocr_result.get("status")
+                if not ocr_result.get("success"):
+                    warning = ocr_result.get("error")
+                    logger.warning(f"Sync OCR fallback status: {ocr_status}, warning: {warning}")
         else:
-            # Run OCR synchronously (default for local/testing)
-            try:
-                _run_ocr_sync(db, str(asset.id))
+            # Run OCR synchronously with timeout (default for local/testing)
+            ocr_result = await _run_ocr_sync_with_timeout(db, str(asset.id))
+            ocr_status = ocr_result.get("status")
+            if ocr_result.get("success"):
                 logger.info(f"Asset uploaded: {asset.id}, OCR completed synchronously")
-            except Exception as e:
-                logger.error(f"Failed to run OCR: {e}", exc_info=True)
+            else:
+                warning = ocr_result.get("error")
+                logger.warning(f"OCR {ocr_status} for asset {asset.id}: {warning}")
 
         return AssetUploadResponse(
             asset_id=str(asset.id),
@@ -174,6 +187,8 @@ async def upload_asset(
             storage_path=asset.storage_path,
             sha256=asset.sha256,
             job_id=job_id,
+            ocr_status=ocr_status,
+            warning=warning,
         )
 
     except HTTPException:
@@ -420,6 +435,40 @@ async def normalize_recipe(recipe_id: str) -> NormalizeRecipeResponse:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+async def _run_ocr_sync_with_timeout(db: Session, asset_id: str, timeout: int = OCR_TIMEOUT_SECONDS) -> dict:
+    """
+    Run OCR synchronously with timeout protection.
+
+    Returns dict with:
+        - success: bool
+        - status: "completed" | "timeout" | "failed"
+        - error: Optional error message
+        - lines_count: Number of OCR lines extracted (if successful)
+    """
+    try:
+        # Run OCR in thread pool to allow timeout
+        loop = asyncio.get_event_loop()
+        await asyncio.wait_for(
+            loop.run_in_executor(None, _run_ocr_sync, db, asset_id),
+            timeout=timeout
+        )
+        return {"success": True, "status": "completed"}
+    except asyncio.TimeoutError:
+        logger.error(f"OCR timeout after {timeout}s for asset {asset_id}")
+        return {
+            "success": False,
+            "status": "timeout",
+            "error": f"OCR processing exceeded {timeout} second timeout"
+        }
+    except Exception as e:
+        logger.error(f"OCR failed for asset {asset_id}: {e}", exc_info=True)
+        return {
+            "success": False,
+            "status": "failed",
+            "error": str(e)
+        }
+
+
 def _run_ocr_sync(db: Session, asset_id: str) -> None:
     """
     Run OCR synchronously on an asset, then parse the results.
@@ -428,6 +477,9 @@ def _run_ocr_sync(db: Session, asset_id: str) -> None:
     Args:
         db: Database session
         asset_id: Asset UUID string
+
+    Raises:
+        Exception: If OCR or parsing fails
     """
     try:
         # Get asset from DB
@@ -436,7 +488,7 @@ def _run_ocr_sync(db: Session, asset_id: str) -> None:
 
         if not asset:
             logger.error(f"Asset {asset_id} not found for OCR")
-            return
+            raise ValueError(f"Asset {asset_id} not found")
 
         # Retrieve file from storage
         storage = get_storage_backend()
@@ -448,6 +500,7 @@ def _run_ocr_sync(db: Session, asset_id: str) -> None:
         db.commit()
 
         # Run OCR
+        logger.info(f"Starting OCR for asset {asset_id}")
         ocr_service = get_ocr_service(use_gpu=False)
         ocr_lines_data = ocr_service.extract_text(file_bytes, asset_type=asset.type)
 
