@@ -56,22 +56,51 @@ This guide walks you through deploying Ollama + LLaVA-7B to Railway as a separat
 
 Once the Ollama service is running, you need to pull the LLaVA model.
 
-### Option A: Via Railway Shell (Recommended)
+**Important:** Railway doesn't provide a web-based shell for Docker services. You must use the Railway CLI.
 
-1. **Open Railway Shell**
-   - In your `recipenow-ollama` service
-   - Click **"..."** menu → **"Shell"**
+### Install Railway CLI (if not already installed)
 
-2. **Pull the LLaVA model**
+```bash
+# macOS/Linux
+curl -fsSL https://railway.app/install.sh | sh
+
+# Windows (PowerShell)
+iwr https://railway.app/install.ps1 | iex
+
+# Verify installation
+railway --version
+```
+
+### Pull LLaVA Model Using Railway CLI
+
+1. **Login to Railway**
    ```bash
-   ollama pull llava:7b
+   railway login
    ```
 
-   This will take 5-10 minutes (downloads ~4.5GB model)
+   This will open your browser for authentication.
 
-3. **Verify model is installed**
+2. **Link to your project**
    ```bash
-   ollama list
+   cd /path/to/RecipeNow
+   railway link
+   ```
+
+   Select your project from the list.
+
+3. **Connect to Ollama service and pull model**
+   ```bash
+   railway run -s recipenow-ollama ollama pull llava:7b
+   ```
+
+   This will:
+   - Connect to your `recipenow-ollama` service
+   - Run the `ollama pull llava:7b` command inside the container
+   - Download ~4.5GB model (takes 5-10 minutes)
+
+4. **Verify model is installed**
+   ```bash
+   railway run -s recipenow-ollama ollama list
    ```
 
    You should see:
@@ -80,26 +109,26 @@ Once the Ollama service is running, you need to pull the LLaVA model.
    llava:7b       abc123...       4.5 GB    2 minutes ago
    ```
 
-### Option B: Via Railway CLI
+### Alternative: Use Dockerfile with Pre-Installed Model
 
-If you have Railway CLI installed:
+If you prefer to have the model pre-installed, create a custom Dockerfile:
 
-```bash
-# Login to Railway
-railway login
+**File:** `infra/ollama/Dockerfile`
+```dockerfile
+FROM ollama/ollama:latest
 
-# Link to your project
-railway link
+# Pre-pull the LLaVA model during build
+RUN ollama serve & sleep 5 && ollama pull llava:7b && pkill ollama
 
-# Connect to Ollama service shell
-railway run -s recipenow-ollama -- sh
+EXPOSE 11434
 
-# Pull model
-ollama pull llava:7b
-
-# Exit
-exit
+CMD ["ollama", "serve"]
 ```
+
+Then in Railway:
+- Change source from Docker Image to GitHub repo
+- Set Dockerfile path: `infra/ollama/Dockerfile`
+- Deploy (first build will take longer but model is pre-installed)
 
 ---
 
@@ -239,6 +268,20 @@ ERROR - Ollama request timeout
 ---
 
 ## Troubleshooting
+
+### Issue 0: Can't Access Shell in Railway Dashboard
+
+**Symptoms:**
+- No "Shell" button in Railway dashboard
+- Can't execute commands in the service
+
+**Solution:**
+Railway doesn't provide web-based shell for Docker services. Use Railway CLI:
+```bash
+railway login
+railway link
+railway run -s recipenow-ollama ollama list
+```
 
 ### Issue 1: Ollama Service Out of Memory
 
