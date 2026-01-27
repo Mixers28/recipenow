@@ -15,7 +15,8 @@
   - Issue: 500 errors on upload due to OCR timeouts (SIGTERM kills)
   - Solution 1: Added 90-second timeout wrapper with graceful degradation
   - Solution 2: Enhanced async job support with Redis/ARQ (background processing)
-  - Result: Assets saved even on timeout; comprehensive Railway setup guide created
+  - Hotfix: Corrected ARQ lifecycle hooks (async functions vs instance methods)
+  - Result: Assets saved even on timeout; worker ready for Railway deployment
 - **Current Phase:** Production support + monitoring. Async jobs ready for Railway enablement.
 - **Next:** Enable async jobs in Railway, QA testing, database migration, Sprint 5 UI badges.
 <!-- SUMMARY_END -->
