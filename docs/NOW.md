@@ -6,19 +6,21 @@
 <!-- SUMMARY_START -->
 **Current Focus (auto-maintained by Agent):**
 - **Sprint 0-6 Complete:** Full V1 implementation delivered (scaffolding → OCR → CRUD → UI → pantry/match).
-- **Sprint 2-3: OCR Enhancement Complete:** Two-stage OCR pipeline (rotation detection + LLM vision) implemented and deployed.
-  - Tesseract PSM 0 rotation detection with 3-method voting (99% accuracy)
-  - Ollama + LLaVA-7B offline-first LLM vision fallback (Claude/OpenAI cloud backup)
-  - SourceSpan.source_method field for provenance tracking
-- **Production Status:** Deployed to Railway backend, Vercel frontend. Four hotfixes applied.
-- **Latest Fix (Jan 27, 2026):** OCR Timeout & Async Jobs Implementation
-  - Issue: 500 errors on upload due to OCR timeouts (SIGTERM kills)
-  - Solution 1: Added 90-second timeout wrapper with graceful degradation
-  - Solution 2: Enhanced async job support with Redis/ARQ (background processing)
-  - Hotfix: Corrected ARQ lifecycle hooks (async functions vs instance methods)
-  - Result: Assets saved even on timeout; worker ready for Railway deployment
-- **Current Phase:** Production support + monitoring. Async jobs ready for Railway enablement.
-- **Next:** Enable async jobs in Railway, QA testing, database migration, Sprint 5 UI badges.
+- **Sprint 2-3: LLM Vision Primary Extraction:** LLaVA-7B multimodal LLM as primary extraction method
+  - LLM vision (Ollama + LLaVA-7B) runs first for all recipes
+  - OCR parser (PaddleOCR + Tesseract rotation) serves as fallback
+  - Better handles complex layouts, two-column recipes, rotated images
+  - All extractions tagged with source_method for full provenance
+  - Solves column detection truncation issues automatically
+- **Production Status:** Deployed to Railway backend, Vercel frontend. Multiple fixes applied.
+- **Latest Updates (Jan 27, 2026):**
+  1. **UI Improvement:** Tabbed interface for recipe review (Image/Recipe tabs)
+  2. **Database Fix:** Added pool_recycle=300 to prevent Supabase prepared statement errors
+  3. **Extraction Pipeline:** LLM vision primary, OCR fallback (fixes asset.file_data bug)
+  4. **OCR Timeout:** 90-second timeout wrapper with graceful degradation
+  5. **Async Jobs:** Redis/ARQ worker ready for Railway deployment
+- **Current Phase:** LLM vision-first extraction active. Ready for Railway Ollama deployment.
+- **Next:** Deploy Ollama to Railway, enable async jobs, test LLM extraction quality, UI badges.
 <!-- SUMMARY_END -->
 
 ---
@@ -141,3 +143,19 @@ Railway OCR pipeline stable → parsed fields populate and field statuses render
 - SPEC.md is now the single source of truth; all implementation must follow it.
 - Open questions (job queue, OCR lib, auth mode) are documented in SPEC.md and resolved by Context7.
 - If NOW grows beyond 12 items, roll up to SESSION_NOTES and keep only active tasks here.
+
+---
+
+## Known Issues (Backlog)
+
+### OCR Column Detection - Two-Column Layout Merging
+- **Issue:** PaddleOCR merges text across columns at OCR stage, causing truncated extractions (e.g., "250g/9oz natural yog" instead of "natural yogurt")
+- **Impact:** Ingredients and steps may be incomplete in two-column recipe layouts
+- **Current Mitigation:** Gap-based column detection in parser helps but doesn't fully solve the issue
+- **Potential Solutions to Investigate:**
+  - Tune PaddleOCR parameters: `det_db_box_thresh`, `det_db_unclip_ratio`, `det_db_score_mode`
+  - Enable layout analysis mode to detect columns before text extraction
+  - Hybrid approach: Use Tesseract for layout detection + PaddleOCR for text recognition
+  - Pre-process image to split columns before OCR
+- **Priority:** Low (users can manually edit fields, LLM fallback exists for critical extractions)
+- **Status:** Deferred until higher priorities complete (async jobs, database migration, Sprint 5 UI)
