@@ -571,6 +571,16 @@ except ImportError:
 
 
 if RedisSettings and settings:
+    async def startup(ctx: dict) -> None:
+        """Called when worker starts."""
+        logger.info("ARQ worker starting...")
+        logger.info(f"Redis URL: {settings.REDIS_URL}")
+        logger.info("Functions: ingest_recipe, structure_recipe, normalize_recipe")
+
+    async def shutdown(ctx: dict) -> None:
+        """Called when worker shuts down."""
+        logger.info("ARQ worker shutting down...")
+
     class WorkerSettings:
         """
         ARQ worker configuration for background job processing.
@@ -598,12 +608,6 @@ if RedisSettings and settings:
         log_results = True
         handle_signals = True
 
-        def on_startup(self, ctx: dict) -> None:
-            """Called when worker starts."""
-            logger.info("ARQ worker starting...")
-            logger.info(f"Redis: {self.redis_settings}")
-            logger.info(f"Functions: {[f.__name__ for f in self.functions]}")
-
-        def on_shutdown(self, ctx: dict) -> None:
-            """Called when worker shuts down."""
-            logger.info("ARQ worker shutting down...")
+        # Lifecycle hooks (async functions, not methods)
+        on_startup = startup
+        on_shutdown = shutdown
