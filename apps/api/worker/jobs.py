@@ -208,53 +208,102 @@ async def structure_recipe(
                 for line in ocr_line_models
             ]
             
-            # Parse with deterministic parser
-            parser = RecipeParser()
-            parse_result = parser.parse(ocr_lines_data, asset_id)
-            
-            recipe_data = parse_result.get("recipe", {})
-            source_spans = parse_result.get("spans", [])
-            field_statuses = parse_result.get("field_statuses", [])
-            
-            logger.info(f"Parser extracted: title={bool(recipe_data.get('title'))}, "
-                       f"ingredients={len(recipe_data.get('ingredients', []))}, "
-                       f"steps={len(recipe_data.get('steps', []))}")
-            
-            # Check for critical fields
-            missing_critical = _check_missing_critical_fields(recipe_data)
-            
-            if missing_critical:
-                logger.info(f"Critical fields missing: {missing_critical}. Invoking LLM fallback.")
-                
-                # Get the original file data from asset
-                from apps.api.db.models import Asset
-                asset = db.query(Asset).filter(Asset.id == asset_id).first()
-                
-                if asset and asset.file_data:
-                    try:
-                        # Invoke LLM vision fallback
-                        llm_service = get_llm_vision_service()
-                        llm_result = llm_service.extract_recipe_from_image(asset.file_data)
-                        logger.info(f"LLM fallback returned: {list(llm_result.keys())}")
-                        
-                        # Merge LLM results with OCR results
-                        recipe_data = _merge_llm_fallback(
-                            ocr_result=recipe_data,
-                            llm_result=llm_result,
-                            missing_critical=missing_critical,
-                        )
-                        
-                        # Mark merged fields with source_method="llm-vision"
-                        for span in source_spans:
-                            if span.get("field_path") in missing_critical:
-                                span["source_method"] = "llm-vision"
-                        
-                        logger.info("LLM fallback merged successfully")
-                    
-                    except Exception as e:
-                        logger.warning(f"LLM fallback failed (proceeding with OCR only): {e}")
-                else:
-                    logger.warning("Asset file data not available; cannot invoke LLM fallback")
+            # PRIMARY: Use LLM Vision for extraction
+            llm_extraction_success = False
+            recipe_data = {}
+
+            # Retrieve file from storage for LLM vision
+            from apps.api.db.models import MediaAsset
+            from apps.api.services.storage import get_storage_backend
+
+            asset = db.query(MediaAsset).filter(MediaAsset.id == asset_id).first()
+
+            if asset:
+                try:
+                    # Get file data from storage
+                    storage = get_storage_backend()
+                    file_data = storage.get(asset.storage_path)
+
+                    # Invoke LLM vision as PRIMARY extraction method
+                    logger.info(f"Running LLM vision extraction for asset {asset_id}")
+                    llm_service = get_llm_vision_service()
+                    llm_result = llm_service.extract_recipe_from_image(file_data)
+                    logger.info(f"LLM vision extracted: {list(llm_result.keys())}")
+
+                    recipe_data = {
+                        "title": llm_result.get("title"),
+                        "servings": llm_result.get("servings"),
+                        "ingredients": llm_result.get("ingredients", []),
+                        "steps": llm_result.get("steps", []),
+                        "tags": [],
+                        "times": {
+                            "prep_min": _parse_time_to_minutes(llm_result.get("prep_time")),
+                            "cook_min": _parse_time_to_minutes(llm_result.get("cook_time")),
+                            "total_min": _parse_time_to_minutes(llm_result.get("total_time")),
+                        }
+                    }
+
+                    llm_extraction_success = True
+                    logger.info(f"LLM vision extraction successful: title={bool(recipe_data.get('title'))}, "
+                               f"ingredients={len(recipe_data.get('ingredients', []))}, "
+                               f"steps={len(recipe_data.get('steps', []))}")
+
+                except Exception as e:
+                    logger.warning(f"LLM vision extraction failed, falling back to OCR parser: {e}")
+            else:
+                logger.warning(f"Asset {asset_id} not found, cannot run LLM vision")
+
+            # FALLBACK: Use OCR parser if LLM vision failed
+            source_spans = []
+            field_statuses = []
+
+            if not llm_extraction_success:
+                logger.info("Using OCR parser as fallback")
+                parser = RecipeParser()
+                parse_result = parser.parse(ocr_lines_data, asset_id)
+
+                recipe_data = parse_result.get("recipe", {})
+                source_spans = parse_result.get("spans", [])
+                field_statuses = parse_result.get("field_statuses", [])
+
+                logger.info(f"OCR parser extracted: title={bool(recipe_data.get('title'))}, "
+                           f"ingredients={len(recipe_data.get('ingredients', []))}, "
+                           f"steps={len(recipe_data.get('steps', []))}")
+            else:
+                # LLM extraction succeeded - create minimal source spans for provenance
+                # All fields marked as source_method="llm-vision"
+                if recipe_data.get("title"):
+                    source_spans.append({
+                        "field_path": "title",
+                        "asset_id": asset_id,
+                        "page": 0,
+                        "bbox": None,
+                        "extracted_text": recipe_data["title"],
+                        "confidence": 1.0,
+                        "source_method": "llm-vision"
+                    })
+
+                for idx, ingredient in enumerate(recipe_data.get("ingredients", [])):
+                    source_spans.append({
+                        "field_path": f"ingredients[{idx}]",
+                        "asset_id": asset_id,
+                        "page": 0,
+                        "bbox": None,
+                        "extracted_text": ingredient,
+                        "confidence": 1.0,
+                        "source_method": "llm-vision"
+                    })
+
+                for idx, step in enumerate(recipe_data.get("steps", [])):
+                    source_spans.append({
+                        "field_path": f"steps[{idx}]",
+                        "asset_id": asset_id,
+                        "page": 0,
+                        "bbox": None,
+                        "extracted_text": step,
+                        "confidence": 1.0,
+                        "source_method": "llm-vision"
+                    })
             
             # Store in database
             recipe = Recipe(
