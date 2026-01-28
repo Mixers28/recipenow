@@ -157,8 +157,19 @@ async def upload_asset(
         if settings.ENABLE_ASYNC_JOBS:
             try:
                 from arq import create_pool
+                from arq.connections import RedisSettings
+                from urllib.parse import urlparse
 
-                redis_pool = await create_pool(settings.REDIS_URL)
+                # Parse REDIS_URL into RedisSettings
+                redis_url = urlparse(settings.REDIS_URL)
+                redis_settings = RedisSettings(
+                    host=redis_url.hostname or "localhost",
+                    port=redis_url.port or 6379,
+                    password=redis_url.password,
+                    database=int(redis_url.path.lstrip("/")) if redis_url.path and redis_url.path != "/" else 0,
+                )
+
+                redis_pool = await create_pool(redis_settings)
                 job = await redis_pool.enqueue_job("ingest_recipe", str(asset.id), str(user_id), str(recipe.id))
                 job_id = job.job_id if job else None
                 ocr_status = "queued"
