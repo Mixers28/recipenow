@@ -15,8 +15,9 @@ paddleocr[all]==3.3.2
 paddlepaddle==3.0.0
 
 # Data Validation
-pydantic==2.7.0
-pydantic-settings==2.1.0
+# Use newer versions for Python 3.13 compatibility
+pydantic>=2.10.0
+pydantic-settings>=2.7.0
 
 # Utilities
 python-multipart==0.0.6
