@@ -159,7 +159,7 @@ async def upload_asset(
                 from arq import create_pool
 
                 redis_pool = await create_pool(settings.REDIS_URL)
-                job = await redis_pool.enqueue_job("ingest_job", str(asset.id), use_gpu=False)
+                job = await redis_pool.enqueue_job("ingest_recipe", str(asset.id), str(user_id), str(recipe.id))
                 job_id = job.job_id if job else None
                 ocr_status = "queued"
                 logger.info(f"Asset uploaded: {asset.id}, queued async job: {job_id}")
