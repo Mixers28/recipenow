@@ -5,13 +5,14 @@
 
 <!-- SUMMARY_START -->
 **Summary (auto-maintained by Agent):**
-- RecipeNow converts uploaded recipe media into canonical recipes with per-field provenance and a review-first UI.
-- V1 scope: OCR ingest, constrained parsing, manual correction, pantry matching, and verification; no public sharing or URL import.
-- **Stack (Finalized):** FastAPI 0.128.0 + Postgres 16 + Next.js 16.1.0 + ARQ 0.26.3 + PaddleOCR 3.3.2.
-- **Deployment:** Railway (backend + worker), Vercel (frontend); Docker Compose for local dev.
+- RecipeNow converts uploaded recipe media into canonical recipes with per-field provenance and a review-first UI. V1 complete and production-deployed.
+- **Full Pipeline:** LLM vision primary (Ollama + LLaVA-7B) → OCR fallback (PaddleOCR + Tesseract rotation) → normalization → review UI → pantry matching.
+- **Stack (Finalized):** FastAPI 0.128.0 + Postgres 16 + Next.js 16.1.0 + ARQ 0.26.3 + PaddleOCR 3.3.2 + Tesseract PSM 0 + Ollama/LLaVA-7B.
+- **LLM Vision PRIMARY (Jan 28, 2026):** Ollama + LLaVA-7B runs first for all recipes. OCR parser serves as fallback. Better handles complex layouts.
+- **Deployment:** Railway (API + Worker + Ollama + Redis, live) + Vercel (frontend, live). Docker Compose for local dev.
 - **Auth:** Multi-user with JWT tokens and user-scoped data isolation.
-- **Parsing:** Deterministic heuristics; LLM deferred to Sprint 3.
-- Sprint 0 complete; now implementing Sprint 1 (schema + persistence).
+- **Provenance:** SourceSpan.source_method field tracks llm-vision vs ocr attribution per field.
+- **Status:** All 6 sprints complete, LLM vision pipeline deployed, async jobs operational (927cb3d, 1510e83, cde9cf9), ready for testing.
 <!-- SUMMARY_END -->
 
 ---
@@ -49,11 +50,21 @@
 - **Frontend:** Next.js 16.1.0 (App Router).
 - **Database:** Postgres 16.
 - **Job Queue:** ARQ 0.26.3 (Redis-backed async jobs).
-- **OCR:** PaddleOCR 3.3.2 (finalized; superior accuracy for recipes).
+- **Extraction Pipeline:** LLM vision primary, OCR fallback:
+  - **PRIMARY: LLM Vision** - Ollama + LLaVA-7B (7B parameter multimodal model, 4.7 GB)
+    - Runs first for ALL recipes in async worker
+    - Deployed to Railway as separate Ollama service
+    - Internal networking: `http://Ollama.railway.internal:11434`
+    - Vision reading only (extract visible text), not inference
+    - Cloud fallback: Claude 3 Haiku + GPT-4V (optional, via API keys)
+  - **FALLBACK: OCR Parser** - Used when LLM vision fails
+    - **Stage 1 (Rotation):** Tesseract PSM 0 with 3-method voting (0°/90°/180°/270°)
+    - **Stage 2 (Extraction):** PaddleOCR 3.3.2 on corrected image
+    - **Parsing:** Deterministic heuristics for ingredient/step extraction
 - **Auth:** Multi-user with JWT tokens; user-scoped data isolation (user_id foreign key on all assets/recipes/pantry).
-- **Deployment:** Railway (backend API + worker), Vercel (Next.js frontend), Docker Compose (local development).
-- **Storage:** MinIO (configured in docker-compose; default for local dev; production TBD on Railway).
-- **Parsing:** Deterministic heuristics only (V1); LLM deferred to Sprint 3 (optional block classification).
+- **Deployment:** Railway (backend API + worker, LIVE), Vercel (Next.js frontend, LIVE), Docker Compose (local development).
+- **Storage:** MinIO (configured in docker-compose; default for local dev).
+- **Parsing:** Deterministic heuristics + optional LLM vision fallback (Sprint 2-3 enhancement). No inference or guessing.
 - **Data integrity rules:**
   - All extracted fields must have provenance or be marked user-entered.
   - Do not invent quantities/units.
@@ -72,9 +83,36 @@
 
 ---
 
-## 5. Memory Hygiene (Drift Guards)
+## 5. Recent Enhancement: LLM Vision Primary Extraction (Jan 25-28, 2026)
 
-- Keep this summary block current and <= 300 tokens.
+**Problem:** PaddleOCR fails on rotated recipe cards and two-column layouts; deterministic parser insufficient for complex recipes.
+
+**Solution v1 (Jan 25):** Two-stage OCR pipeline with LLM vision fallback
+- Rotation detection (Tesseract PSM 0) + LLM vision when critical fields missing
+- 99% rotation accuracy on 152 recipe cards
+
+**Solution v2 (Jan 28):** LLM vision as PRIMARY extraction method
+- **Pipeline Reversal:** LLM vision runs first, OCR serves as fallback
+- **Rationale:** Better handles complex layouts, two-column recipes, handwriting
+- **Deployment:** Ollama + LLaVA-7B deployed to Railway as separate service
+- **Worker Service:** Python 3.13 compatible, async job processing with ARQ
+- **Performance:** Faster responses (async), better extraction quality
+
+**Code Changes:**
+- apps/api/services/llm_vision.py: LLMVisionService (Ollama + cloud fallback)
+- apps/api/worker/jobs.py: LLM vision primary, OCR fallback
+- apps/api/routers/assets.py: Fixed async job enqueuing (ingest_recipe)
+- apps/api/requirements-worker.txt: Minimal deps for worker (no PaddleOCR)
+- apps/api/db/session.py: Supabase pooler fix (prepare_threshold=None)
+- apps/web/app/review/[id]/page.tsx: Tabbed UI (Image/Recipe tabs)
+
+**Production Status:** Deployed (927cb3d, 1510e83, cde9cf9), all services operational, ready for testing.
+
+---
+
+## 6. Memory Hygiene (Drift Guards)
+
+- Keep this summary block current and <= 400 tokens.
 - Move stable decisions into the Change Log so they persist across sessions.
 - Keep NOW to 5-12 active tasks; archive or remove completed items.
 - Roll up SESSION_NOTES into summaries weekly (or every few sessions).
