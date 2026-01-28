@@ -66,7 +66,7 @@ async def ingest_recipe(
     1. Store uploaded asset file
     2. Detect and correct image orientation (if image)
     3. Run OCR (PaddleOCR)
-    4. Create Asset and OCRLines in database
+    4. Create MediaAsset and OCRLines in database
     5. Queue Structure Job
     
     Args:
@@ -80,7 +80,7 @@ async def ingest_recipe(
     """
     from apps.api.db.session import SessionLocal
     from apps.api.services.ocr import get_ocr_service
-    from apps.api.db.models import Asset, OCRLine
+    from apps.api.db.models import MediaMediaAsset, OCRLine
     from sqlalchemy import insert
     
     logger.info(f"Ingest Job: Starting for asset {asset_id}, user {user_id}")
@@ -100,8 +100,8 @@ async def ingest_recipe(
         # Store in database
         db = SessionLocal()
         try:
-            # Create Asset record
-            asset = Asset(
+            # Create MediaAsset record
+            asset = MediaAsset(
                 id=asset_id,
                 user_id=user_id,
                 asset_type=asset_type,
@@ -126,7 +126,7 @@ async def ingest_recipe(
                 db.execute(insert(OCRLine), ocr_lines)
             
             db.commit()
-            logger.info(f"Asset {asset_id} stored with {len(ocr_lines_data)} OCR lines")
+            logger.info(f"MediaAsset {asset_id} stored with {len(ocr_lines_data)} OCR lines")
             
             return {
                 "status": "success",
@@ -208,102 +208,53 @@ async def structure_recipe(
                 for line in ocr_line_models
             ]
             
-            # PRIMARY: Use LLM Vision for extraction
-            llm_extraction_success = False
-            recipe_data = {}
-
-            # Retrieve file from storage for LLM vision
-            from apps.api.db.models import MediaAsset
-            from apps.api.services.storage import get_storage_backend
-
-            asset = db.query(MediaAsset).filter(MediaAsset.id == asset_id).first()
-
-            if asset:
-                try:
-                    # Get file data from storage
-                    storage = get_storage_backend()
-                    file_data = storage.get(asset.storage_path)
-
-                    # Invoke LLM vision as PRIMARY extraction method
-                    logger.info(f"Running LLM vision extraction for asset {asset_id}")
-                    llm_service = get_llm_vision_service()
-                    llm_result = llm_service.extract_recipe_from_image(file_data)
-                    logger.info(f"LLM vision extracted: {list(llm_result.keys())}")
-
-                    recipe_data = {
-                        "title": llm_result.get("title"),
-                        "servings": llm_result.get("servings"),
-                        "ingredients": llm_result.get("ingredients", []),
-                        "steps": llm_result.get("steps", []),
-                        "tags": [],
-                        "times": {
-                            "prep_min": _parse_time_to_minutes(llm_result.get("prep_time")),
-                            "cook_min": _parse_time_to_minutes(llm_result.get("cook_time")),
-                            "total_min": _parse_time_to_minutes(llm_result.get("total_time")),
-                        }
-                    }
-
-                    llm_extraction_success = True
-                    logger.info(f"LLM vision extraction successful: title={bool(recipe_data.get('title'))}, "
-                               f"ingredients={len(recipe_data.get('ingredients', []))}, "
-                               f"steps={len(recipe_data.get('steps', []))}")
-
-                except Exception as e:
-                    logger.warning(f"LLM vision extraction failed, falling back to OCR parser: {e}")
-            else:
-                logger.warning(f"Asset {asset_id} not found, cannot run LLM vision")
-
-            # FALLBACK: Use OCR parser if LLM vision failed
-            source_spans = []
-            field_statuses = []
-
-            if not llm_extraction_success:
-                logger.info("Using OCR parser as fallback")
-                parser = RecipeParser()
-                parse_result = parser.parse(ocr_lines_data, asset_id)
-
-                recipe_data = parse_result.get("recipe", {})
-                source_spans = parse_result.get("spans", [])
-                field_statuses = parse_result.get("field_statuses", [])
-
-                logger.info(f"OCR parser extracted: title={bool(recipe_data.get('title'))}, "
-                           f"ingredients={len(recipe_data.get('ingredients', []))}, "
-                           f"steps={len(recipe_data.get('steps', []))}")
-            else:
-                # LLM extraction succeeded - create minimal source spans for provenance
-                # All fields marked as source_method="llm-vision"
-                if recipe_data.get("title"):
-                    source_spans.append({
-                        "field_path": "title",
-                        "asset_id": asset_id,
-                        "page": 0,
-                        "bbox": None,
-                        "extracted_text": recipe_data["title"],
-                        "confidence": 1.0,
-                        "source_method": "llm-vision"
-                    })
-
-                for idx, ingredient in enumerate(recipe_data.get("ingredients", [])):
-                    source_spans.append({
-                        "field_path": f"ingredients[{idx}]",
-                        "asset_id": asset_id,
-                        "page": 0,
-                        "bbox": None,
-                        "extracted_text": ingredient,
-                        "confidence": 1.0,
-                        "source_method": "llm-vision"
-                    })
-
-                for idx, step in enumerate(recipe_data.get("steps", [])):
-                    source_spans.append({
-                        "field_path": f"steps[{idx}]",
-                        "asset_id": asset_id,
-                        "page": 0,
-                        "bbox": None,
-                        "extracted_text": step,
-                        "confidence": 1.0,
-                        "source_method": "llm-vision"
-                    })
+            # Parse with deterministic parser
+            parser = RecipeParser()
+            parse_result = parser.parse(ocr_lines_data, asset_id)
+            
+            recipe_data = parse_result.get("recipe", {})
+            source_spans = parse_result.get("spans", [])
+            field_statuses = parse_result.get("field_statuses", [])
+            
+            logger.info(f"Parser extracted: title={bool(recipe_data.get('title'))}, "
+                       f"ingredients={len(recipe_data.get('ingredients', []))}, "
+                       f"steps={len(recipe_data.get('steps', []))}")
+            
+            # Check for critical fields
+            missing_critical = _check_missing_critical_fields(recipe_data)
+            
+            if missing_critical:
+                logger.info(f"Critical fields missing: {missing_critical}. Invoking LLM fallback.")
+                
+                # Get the original file data from asset
+                from apps.api.db.models import MediaAsset
+                asset = db.query(MediaAsset).filter(MediaAsset.id == asset_id).first()
+                
+                if asset and asset.file_data:
+                    try:
+                        # Invoke LLM vision fallback
+                        llm_service = get_llm_vision_service()
+                        llm_result = llm_service.extract_recipe_from_image(asset.file_data)
+                        logger.info(f"LLM fallback returned: {list(llm_result.keys())}")
+                        
+                        # Merge LLM results with OCR results
+                        recipe_data = _merge_llm_fallback(
+                            ocr_result=recipe_data,
+                            llm_result=llm_result,
+                            missing_critical=missing_critical,
+                        )
+                        
+                        # Mark merged fields with source_method="llm-vision"
+                        for span in source_spans:
+                            if span.get("field_path") in missing_critical:
+                                span["source_method"] = "llm-vision"
+                        
+                        logger.info("LLM fallback merged successfully")
+                    
+                    except Exception as e:
+                        logger.warning(f"LLM fallback failed (proceeding with OCR only): {e}")
+                else:
+                    logger.warning("MediaAsset file data not available; cannot invoke LLM fallback")
             
             # Store in database
             recipe = Recipe(
@@ -602,61 +553,5 @@ def _quality_check(recipe: Any) -> List[str]:
     
     if recipe.servings and recipe.servings < 1:
         issues.append("Invalid servings value")
-
+    
     return issues
-
-
-# ============================================================================
-# ARQ Worker Configuration
-# ============================================================================
-
-try:
-    from arq.connections import RedisSettings
-    from config import settings
-except ImportError:
-    # Allow imports to work even if arq not installed (for development)
-    RedisSettings = None
-    settings = None
-
-
-if RedisSettings and settings:
-    async def startup(ctx: dict) -> None:
-        """Called when worker starts."""
-        logger.info("ARQ worker starting...")
-        logger.info(f"Redis URL: {settings.REDIS_URL}")
-        logger.info("Functions: ingest_recipe, structure_recipe, normalize_recipe")
-
-    async def shutdown(ctx: dict) -> None:
-        """Called when worker shuts down."""
-        logger.info("ARQ worker shutting down...")
-
-    class WorkerSettings:
-        """
-        ARQ worker configuration for background job processing.
-
-        Start worker with:
-            cd apps/api && python -m arq worker.jobs.WorkerSettings
-
-        Environment variables:
-            REDIS_URL: Redis connection URL (required)
-            DATABASE_URL: PostgreSQL connection URL (required)
-        """
-
-        # Register async job functions
-        functions = [ingest_recipe, structure_recipe, normalize_recipe]
-
-        # Parse Redis URL from settings
-        redis_settings = RedisSettings.from_dsn(settings.REDIS_URL)
-
-        # Worker pool settings
-        max_jobs = 10  # Max concurrent jobs
-        job_timeout = 300  # 5 minutes max per job
-        keep_result = 3600  # Keep results for 1 hour
-
-        # Logging
-        log_results = True
-        handle_signals = True
-
-        # Lifecycle hooks (async functions, not methods)
-        on_startup = startup
-        on_shutdown = shutdown
