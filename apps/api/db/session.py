@@ -22,7 +22,8 @@ else:
 
 # Disable prepared statements for Supabase transaction-mode pooler compatibility
 # See: https://supabase.com/docs/guides/database/connecting-to-postgres#transaction-pooler
-CONNECT_ARGS = {"prepare_threshold": 0}
+# Use prepare_threshold=None to completely disable prepared statements in psycopg3
+CONNECT_ARGS = {"prepare_threshold": None}
 
 # Create sync engine (for background jobs and CLI)
 engine = create_engine(
