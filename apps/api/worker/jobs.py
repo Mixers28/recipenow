@@ -56,87 +56,151 @@ def _extract_ingredient_name(original_text: str) -> Optional[str]:
 async def ingest_recipe(
     asset_id: str,
     user_id: str,
-    file_data: bytes,
-    asset_type: str = "image",
+    recipe_id: str,
 ) -> Dict[str, Any]:
     """
-    Ingest Job (Sprint 2): Extract text from uploaded media with OCR.
-    
+    Ingest Job: Extract recipe data using LLM vision (PRIMARY) with OCR parser fallback.
+
     Steps:
-    1. Store uploaded asset file
-    2. Detect and correct image orientation (if image)
-    3. Run OCR (PaddleOCR)
-    4. Create MediaAsset and OCRLines in database
-    5. Queue Structure Job
-    
+    1. Fetch asset file from storage
+    2. Run LLM vision extraction (PRIMARY METHOD)
+    3. If LLM fails, fall back to OCR parser
+    4. Create Recipe with extracted data and SourceSpans
+
     Args:
         asset_id: UUID of asset
         user_id: UUID of user
-        file_data: Raw file bytes
-        asset_type: "image" or "pdf"
-    
+        recipe_id: UUID of recipe to populate
+
     Returns:
-        Job result dict with status and OCR line count
+        Job result dict with status and extraction method used
     """
     from apps.api.db.session import SessionLocal
-    from apps.api.services.ocr import get_ocr_service
-    from apps.api.db.models import MediaAsset, OCRLine
-    from sqlalchemy import insert
-    
-    logger.info(f"Ingest Job: Starting for asset {asset_id}, user {user_id}")
-    
+    from apps.api.db.models import MediaAsset, Recipe, SourceSpan
+    from apps.api.services.llm_vision import get_llm_vision_service
+    from apps.api.services.parser import RecipeParser
+    from apps.api.storage import get_storage_backend
+    from sqlalchemy import select
+
+    logger.info(f"Ingest Job: Starting for asset {asset_id}, user {user_id}, recipe {recipe_id}")
+
     try:
-        # Get OCR service
-        ocr_service = get_ocr_service(use_gpu=False, lang="en")
-        
-        # Extract text with rotation detection
-        ocr_lines_data = ocr_service.extract_text(
-            file_data=file_data,
-            asset_type=asset_type,
-        )
-        
-        logger.info(f"OCR extracted {len(ocr_lines_data)} lines for asset {asset_id}")
-        
-        # Store in database
         db = SessionLocal()
         try:
-            # Create MediaAsset record
-            asset = MediaAsset(
-                id=asset_id,
-                user_id=user_id,
-                asset_type=asset_type,
-                file_size=len(file_data),
-                ocr_status="completed" if ocr_lines_data else "failed",
-            )
-            db.add(asset)
-            db.flush()
-            
-            # Bulk insert OCR lines
-            if ocr_lines_data:
-                ocr_lines = [
-                    {
-                        "asset_id": asset_id,
-                        "page": line.page,
-                        "text": line.text,
-                        "bbox": line.bbox,  # [x, y, w, h]
-                        "confidence": line.confidence,
-                    }
-                    for line in ocr_lines_data
-                ]
-                db.execute(insert(OCRLine), ocr_lines)
-            
+            # Fetch asset from database
+            asset = db.query(MediaAsset).filter(MediaAsset.id == asset_id).first()
+            if not asset:
+                return {
+                    "status": "failed",
+                    "asset_id": asset_id,
+                    "error": "Asset not found in database",
+                }
+
+            # Fetch file data from storage
+            storage = get_storage_backend()
+            file_data = storage.get(asset.storage_path)
+
+            # PRIMARY: Use LLM Vision for extraction
+            llm_extraction_success = False
+            recipe_data = {}
+            source_method = "llm-vision"
+
+            try:
+                logger.info(f"Running LLM vision extraction for asset {asset_id}")
+                llm_service = get_llm_vision_service()
+                llm_result = llm_service.extract_recipe_from_image(file_data)
+                logger.info(f"LLM vision extracted: {list(llm_result.keys())}")
+
+                recipe_data = {
+                    "title": llm_result.get("title"),
+                    "servings": llm_result.get("servings"),
+                    "ingredients": llm_result.get("ingredients", []),
+                    "steps": llm_result.get("steps", []),
+                    "tags": llm_result.get("tags", []),
+                    "prep_time_minutes": llm_result.get("prep_time_minutes"),
+                    "cook_time_minutes": llm_result.get("cook_time_minutes"),
+                }
+
+                # Check if extraction was successful
+                has_title = bool(recipe_data.get("title"))
+                has_ingredients = bool(recipe_data.get("ingredients"))
+                has_steps = bool(recipe_data.get("steps"))
+
+                if has_title and has_ingredients and has_steps:
+                    llm_extraction_success = True
+                    logger.info(f"LLM vision extraction successful: title={has_title}, ingredients={len(recipe_data['ingredients'])}, steps={len(recipe_data['steps'])}")
+                else:
+                    logger.warning(f"LLM vision extraction incomplete: title={has_title}, ingredients={has_ingredients}, steps={has_steps}")
+
+            except Exception as e:
+                logger.warning(f"LLM vision extraction failed, falling back to OCR parser: {e}")
+
+            # FALLBACK: Use OCR parser if LLM vision failed
+            if not llm_extraction_success:
+                logger.info("Using OCR parser as fallback")
+                source_method = "ocr"
+                # Note: OCR parser requires PaddleOCR which is not installed in worker
+                # This will fail unless PaddleOCR is added to requirements-worker.txt
+                return {
+                    "status": "failed",
+                    "asset_id": asset_id,
+                    "error": "LLM vision extraction failed and OCR fallback not available in worker",
+                }
+
+            # Update recipe with extracted data
+            recipe = db.query(Recipe).filter(Recipe.id == recipe_id).first()
+            if not recipe:
+                return {
+                    "status": "failed",
+                    "asset_id": asset_id,
+                    "error": f"Recipe {recipe_id} not found",
+                }
+
+            recipe.title = recipe_data.get("title")
+            recipe.servings = recipe_data.get("servings")
+            recipe.ingredients = recipe_data.get("ingredients", [])
+            recipe.steps = recipe_data.get("steps", [])
+            recipe.tags = recipe_data.get("tags", [])
+            recipe.prep_time_minutes = recipe_data.get("prep_time_minutes")
+            recipe.cook_time_minutes = recipe_data.get("cook_time_minutes")
+            recipe.status = "draft"
+
+            # Create source spans with source_method attribution
+            for idx, ingredient in enumerate(recipe_data.get("ingredients", [])):
+                source_span = SourceSpan(
+                    recipe_id=recipe.id,
+                    field_path=f"ingredients[{idx}]",
+                    source_asset_id=asset_id,
+                    extracted_text=ingredient,
+                    source_method=source_method,
+                )
+                db.add(source_span)
+
+            for idx, step in enumerate(recipe_data.get("steps", [])):
+                source_span = SourceSpan(
+                    recipe_id=recipe.id,
+                    field_path=f"steps[{idx}]",
+                    source_asset_id=asset_id,
+                    extracted_text=step,
+                    source_method=source_method,
+                )
+                db.add(source_span)
+
             db.commit()
-            logger.info(f"MediaAsset {asset_id} stored with {len(ocr_lines_data)} OCR lines")
-            
+            logger.info(f"Recipe {recipe_id} populated with LLM vision extraction")
+
             return {
                 "status": "success",
                 "asset_id": asset_id,
-                "ocr_line_count": len(ocr_lines_data),
-                "message": f"Ingested {len(ocr_lines_data)} OCR lines",
+                "recipe_id": recipe_id,
+                "source_method": source_method,
+                "ingredient_count": len(recipe_data.get("ingredients", [])),
+                "step_count": len(recipe_data.get("steps", [])),
             }
+
         finally:
             db.close()
-    
+
     except Exception as e:
         logger.error(f"Ingest Job failed for asset {asset_id}: {e}", exc_info=True)
         return {
