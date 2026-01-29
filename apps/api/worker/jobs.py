@@ -54,6 +54,7 @@ def _extract_ingredient_name(original_text: str) -> Optional[str]:
 
 
 async def ingest_recipe(
+    ctx: dict,
     asset_id: str,
     user_id: str,
     recipe_id: str,
@@ -211,6 +212,7 @@ async def ingest_recipe(
 
 
 async def structure_recipe(
+    ctx: dict,
     asset_id: str,
     user_id: str,
     recipe_id: Optional[str] = None,
@@ -487,6 +489,7 @@ def _generate_uuid() -> str:
 
 
 async def normalize_recipe(
+    ctx: dict,
     recipe_id: str,
     user_id: str,
 ) -> Dict[str, Any]:
