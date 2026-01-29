@@ -80,7 +80,7 @@ async def ingest_recipe(
     from apps.api.db.models import MediaAsset, Recipe, SourceSpan
     from apps.api.services.llm_vision import get_llm_vision_service
     from apps.api.services.parser import RecipeParser
-    from apps.api.storage import get_storage_backend
+    from apps.api.services.storage import get_storage_backend
     from sqlalchemy import select
 
     logger.info(f"Ingest Job: Starting for asset {asset_id}, user {user_id}, recipe {recipe_id}")
