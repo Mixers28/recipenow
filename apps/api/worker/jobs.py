@@ -553,5 +553,61 @@ def _quality_check(recipe: Any) -> List[str]:
     
     if recipe.servings and recipe.servings < 1:
         issues.append("Invalid servings value")
-    
+
     return issues
+
+
+# ============================================================================
+# ARQ Worker Configuration
+# ============================================================================
+
+try:
+    from arq.connections import RedisSettings
+    from config import settings
+except ImportError:
+    # Allow imports to work even if arq not installed (for development)
+    RedisSettings = None
+    settings = None
+
+
+if RedisSettings and settings:
+    async def startup(ctx: dict) -> None:
+        """Called when worker starts."""
+        logger.info("ARQ worker starting...")
+        logger.info(f"Redis URL: {settings.REDIS_URL}")
+        logger.info("Functions: ingest_recipe, structure_recipe, normalize_recipe")
+
+    async def shutdown(ctx: dict) -> None:
+        """Called when worker shuts down."""
+        logger.info("ARQ worker shutting down...")
+
+    class WorkerSettings:
+        """
+        ARQ worker configuration for background job processing.
+
+        Start worker with:
+            cd apps/api && python -m arq worker.jobs.WorkerSettings
+
+        Environment variables:
+            REDIS_URL: Redis connection URL (required)
+            DATABASE_URL: PostgreSQL connection URL (required)
+        """
+
+        # Register async job functions
+        functions = [ingest_recipe, structure_recipe, normalize_recipe]
+
+        # Parse Redis URL from settings
+        redis_settings = RedisSettings.from_dsn(settings.REDIS_URL)
+
+        # Worker pool settings
+        max_jobs = 10  # Max concurrent jobs
+        job_timeout = 300  # 5 minutes max per job
+        keep_result = 3600  # Keep results for 1 hour
+
+        # Logging
+        log_results = True
+        handle_signals = True
+
+        # Lifecycle hooks (async functions, not methods)
+        on_startup = startup
+        on_shutdown = shutdown
