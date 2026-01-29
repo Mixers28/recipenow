@@ -80,7 +80,7 @@ async def ingest_recipe(
     """
     from apps.api.db.session import SessionLocal
     from apps.api.services.ocr import get_ocr_service
-    from apps.api.db.models import MediaMediaAsset, OCRLine
+    from apps.api.db.models import MediaAsset, OCRLine
     from sqlalchemy import insert
     
     logger.info(f"Ingest Job: Starting for asset {asset_id}, user {user_id}")
