@@ -24,7 +24,6 @@ class RecipeCreateRequest(BaseModel):
 
     title: str
     servings: Optional[int] = None
-    servings_estimate: Optional[dict] = None
     ingredients: Optional[list] = None
     steps: Optional[list] = None
     tags: Optional[List[str]] = None
@@ -38,7 +37,6 @@ class RecipeResponse(BaseModel):
     user_id: str
     title: Optional[str]
     servings: Optional[int]
-    servings_estimate: Optional[dict] = None
     ingredients: Optional[list]
     steps: Optional[list]
     tags: Optional[list]
@@ -56,7 +54,6 @@ class RecipePatchRequest(BaseModel):
 
     title: Optional[str] = None
     servings: Optional[int] = None
-    servings_estimate: Optional[dict] = None
     ingredients: Optional[list] = None
     steps: Optional[list] = None
     tags: Optional[List[str]] = None
@@ -89,8 +86,6 @@ class SourceSpanCreateRequest(BaseModel):
     bbox: List[int]
     ocr_confidence: float
     extracted_text: str
-    source_method: Optional[str] = "ocr"
-    evidence: Optional[dict] = None
 
 
 class SourceSpanResponse(BaseModel):
@@ -105,7 +100,6 @@ class SourceSpanResponse(BaseModel):
     ocr_confidence: float
     extracted_text: str
     source_method: str = "ocr"
-    evidence: Optional[dict] = None
     created_at: Optional[str]
 
     class Config:
@@ -172,7 +166,6 @@ def list_recipes(
                     user_id=str(r.user_id),
                     title=r.title,
                     servings=r.servings,
-                    servings_estimate=r.servings_estimate,
                     ingredients=r.ingredients,
                     steps=r.steps,
                     tags=r.tags,
@@ -221,7 +214,6 @@ def create_recipe(
             user_id=UUID(user_id),
             title=payload.title,
             servings=payload.servings,
-            servings_estimate=payload.servings_estimate,
             ingredients=payload.ingredients,
             steps=payload.steps,
             tags=payload.tags,
@@ -233,7 +225,6 @@ def create_recipe(
             user_id=str(recipe.user_id),
             title=recipe.title,
             servings=recipe.servings,
-            servings_estimate=recipe.servings_estimate,
             ingredients=recipe.ingredients,
             steps=recipe.steps,
             tags=recipe.tags,
@@ -282,7 +273,6 @@ def get_recipe(
             user_id=str(recipe.user_id),
             title=recipe.title,
             servings=recipe.servings,
-            servings_estimate=recipe.servings_estimate,
             ingredients=recipe.ingredients,
             steps=recipe.steps,
             tags=recipe.tags,
@@ -343,8 +333,6 @@ def update_recipe(
                 field_paths_modified.add("title")
             if "servings" in update_data:
                 field_paths_modified.add("servings")
-            if "servings_estimate" in update_data:
-                field_paths_modified.add("servings_estimate")
             if "ingredients" in update_data:
                 for i in range(len(update_data.get("ingredients", []))):
                     field_paths_modified.add(f"ingredients[{i}].original_text")
@@ -366,7 +354,6 @@ def update_recipe(
             user_id=str(recipe.user_id),
             title=recipe.title,
             servings=recipe.servings,
-            servings_estimate=recipe.servings_estimate,
             ingredients=recipe.ingredients,
             steps=recipe.steps,
             tags=recipe.tags,
@@ -523,8 +510,6 @@ def create_span(
             bbox=payload.bbox,
             ocr_confidence=payload.ocr_confidence,
             extracted_text=payload.extracted_text,
-            source_method=payload.source_method or "ocr",
-            evidence=payload.evidence,
         )
 
         return SourceSpanResponse(
@@ -536,8 +521,6 @@ def create_span(
             bbox=span.bbox,
             ocr_confidence=span.ocr_confidence,
             extracted_text=span.extracted_text,
-            source_method=span.source_method,
-            evidence=span.evidence,
             created_at=span.created_at.isoformat() if span.created_at else None,
         )
 
@@ -590,8 +573,7 @@ def list_spans(
                 bbox=s.bbox,
                 ocr_confidence=s.ocr_confidence,
                 extracted_text=s.extracted_text,
-                source_method=s.source_method if hasattr(s, "source_method") else "ocr",
-                evidence=s.evidence if hasattr(s, "evidence") else None,
+                source_method=s.source_method if hasattr(s, 'source_method') else "ocr",
                 created_at=s.created_at.isoformat() if s.created_at else None,
             )
             for s in spans
@@ -698,4 +680,79 @@ def list_field_statuses(
         raise
     except Exception as e:
         logger.error(f"List field statuses failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class CleanupResponse(BaseModel):
+    """Response for cleanup operation."""
+    deleted_count: int
+    message: str
+
+
+@router.delete("/cleanup/empty", response_model=CleanupResponse)
+def cleanup_empty_recipes(
+    user_id: str = None,
+    db: Session = Depends(get_session),
+) -> CleanupResponse:
+    """
+    Delete all recipes that have no ingredients AND no steps (failed extractions).
+
+    This helps clean up recipes where OCR/vision extraction failed.
+    Only deletes recipes belonging to the specified user.
+
+    Args:
+        user_id: User UUID (required)
+        db: Database session
+
+    Returns:
+        Count of deleted recipes
+    """
+    from db.models import Recipe, SourceSpan, FieldStatus, MediaAsset
+    from sqlalchemy import and_, or_
+
+    try:
+        if not user_id:
+            raise HTTPException(status_code=400, detail="user_id is required")
+
+        user_uuid = UUID(user_id)
+
+        # Find recipes with no ingredients AND no steps
+        empty_recipes = db.query(Recipe).filter(
+            and_(
+                Recipe.user_id == user_uuid,
+                or_(
+                    Recipe.ingredients == None,
+                    Recipe.ingredients == [],
+                ),
+                or_(
+                    Recipe.steps == None,
+                    Recipe.steps == [],
+                ),
+            )
+        ).all()
+
+        deleted_count = 0
+        for recipe in empty_recipes:
+            # Delete related SourceSpans
+            db.query(SourceSpan).filter_by(recipe_id=recipe.id).delete()
+            # Delete related FieldStatuses
+            db.query(FieldStatus).filter_by(recipe_id=recipe.id).delete()
+            # Delete the recipe
+            db.delete(recipe)
+            deleted_count += 1
+
+        db.commit()
+
+        logger.info(f"Cleaned up {deleted_count} empty recipes for user {user_id}")
+
+        return CleanupResponse(
+            deleted_count=deleted_count,
+            message=f"Deleted {deleted_count} recipes with no ingredients and no steps"
+        )
+
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id format")
+    except Exception as e:
+        logger.error(f"Cleanup failed: {e}")
+        db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
