@@ -541,50 +541,55 @@ async def normalize_recipe(
     
     logger.info(f"Normalize Job: Starting for recipe {recipe_id}, user {user_id}")
     
-    try:
     db = SessionLocal()
     try:
-            recipe = db.query(Recipe).filter(
-                Recipe.id == recipe_id,
-                Recipe.user_id == user_id,
-            ).first()
-            
-            if not recipe:
-                logger.warning(f"Recipe {recipe_id} not found for user {user_id}")
-                return {
-                    "status": "failed",
-                    "recipe_id": recipe_id,
-                    "error": "Recipe not found",
-                }
-            
-            # Deduplicate ingredients
-            if recipe.ingredients:
-                recipe.ingredients = _deduplicate_ingredients(recipe.ingredients)
-            
-            # Fix time formats
-            if recipe.times:
-                recipe.times = _normalize_times(recipe.times)
-            
-            # Standardize tags
-            if recipe.tags:
-                recipe.tags = _standardize_tags(recipe.tags)
-            
-            # Run quality checks
-            issues = _quality_check(recipe)
-            
-            # Mark as ready for review
-            recipe.status = "review" if not issues else "draft_with_issues"
-            
-            db.commit()
-            logger.info(f"Recipe {recipe_id} normalized. Issues: {len(issues)}")
-            
+        recipe = db.query(Recipe).filter(
+            Recipe.id == recipe_id,
+            Recipe.user_id == user_id,
+        ).first()
+        
+        if not recipe:
+            logger.warning(f"Recipe {recipe_id} not found for user {user_id}")
             return {
-                "status": "success",
+                "status": "failed",
                 "recipe_id": recipe_id,
-                "quality_issues": issues,
-                "message": f"Recipe normalized with {len(issues)} issues",
+                "error": "Recipe not found",
             }
         
+        # Deduplicate ingredients
+        if recipe.ingredients:
+            recipe.ingredients = _deduplicate_ingredients(recipe.ingredients)
+        
+        # Fix time formats
+        if recipe.times:
+            recipe.times = _normalize_times(recipe.times)
+        
+        # Standardize tags
+        if recipe.tags:
+            recipe.tags = _standardize_tags(recipe.tags)
+        
+        # Run quality checks
+        issues = _quality_check(recipe)
+        
+        # Mark as ready for review
+        recipe.status = "review" if not issues else "draft_with_issues"
+        
+        db.commit()
+        logger.info(f"Recipe {recipe_id} normalized. Issues: {len(issues)}")
+        
+        return {
+            "status": "success",
+            "recipe_id": recipe_id,
+            "quality_issues": issues,
+            "message": f"Recipe normalized with {len(issues)} issues",
+        }
+    except Exception as e:
+        logger.error(f"Normalize Job failed for recipe {recipe_id}: {e}", exc_info=True)
+        return {
+            "status": "failed",
+            "recipe_id": recipe_id,
+            "error": str(e),
+        }
     finally:
         db.close()
 
@@ -648,14 +653,6 @@ class WorkerSettings:
     max_jobs = int(os.getenv("ARQ_MAX_JOBS", "10"))
     job_timeout = int(os.getenv("ARQ_JOB_TIMEOUT", str(30 * 60)))
     result_ttl = int(os.getenv("ARQ_RESULT_TTL", str(24 * 60 * 60)))
-    
-    except Exception as e:
-        logger.error(f"Normalize Job failed for recipe {recipe_id}: {e}", exc_info=True)
-        return {
-            "status": "failed",
-            "recipe_id": recipe_id,
-            "error": str(e),
-        }
 
 
 def _deduplicate_ingredients(ingredients: List[str]) -> List[str]:
