@@ -42,7 +42,7 @@ class LLMVisionService:
         api_key: Optional[str] = None,
     ):
         self.model = model or os.getenv("VISION_MODEL", "gpt-4o-mini")
-        self.max_tokens = max_tokens or int(os.getenv("VISION_MAX_OUTPUT_TOKENS", "1024"))
+        self.max_tokens = max_tokens or int(os.getenv("VISION_MAX_OUTPUT_TOKENS", "2048"))
         self.strict_json = (
             strict_json
             if strict_json is not None
@@ -150,19 +150,73 @@ class LLMVisionService:
 
     @staticmethod
     def _parse_json_response(response_text: str) -> dict:
+        import re
+
+        # Try direct parse first
         try:
             return json.loads(response_text)
         except json.JSONDecodeError:
             pass
 
-        import re
-
+        # Extract JSON block from markdown or surrounding text
         json_pattern = r"\{[\s\S]*\}"
         match = re.search(json_pattern, response_text)
         if match:
-            return json.loads(match.group())
+            json_str = match.group()
+            try:
+                return json.loads(json_str)
+            except json.JSONDecodeError:
+                # Try fixing common issues
+                json_str = LLMVisionService._fix_json_string(json_str)
+                try:
+                    return json.loads(json_str)
+                except json.JSONDecodeError:
+                    pass
 
         raise ValueError("No valid JSON found in vision response")
+
+    @staticmethod
+    def _fix_json_string(json_str: str) -> str:
+        """Attempt to fix common JSON formatting issues from LLM responses."""
+        import re
+
+        # Remove trailing commas before ] or }
+        json_str = re.sub(r',\s*([}\]])', r'\1', json_str)
+
+        # Fix unescaped quotes inside strings (common LLM issue)
+        # This is a simplified fix - replace smart quotes with regular quotes
+        json_str = json_str.replace('"', '"').replace('"', '"')
+        json_str = json_str.replace(''', "'").replace(''', "'")
+
+        # Remove any control characters except newlines and tabs
+        json_str = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', json_str)
+
+        # Try to fix truncated JSON by closing brackets
+        open_braces = json_str.count('{') - json_str.count('}')
+        open_brackets = json_str.count('[') - json_str.count(']')
+
+        if open_braces > 0 or open_brackets > 0:
+            # Remove any trailing partial content after last complete value
+            # Look for last complete string or number
+            last_good = max(
+                json_str.rfind('",'),
+                json_str.rfind('"]'),
+                json_str.rfind('"}'),
+                json_str.rfind('null'),
+                json_str.rfind('true'),
+                json_str.rfind('false'),
+            )
+            if last_good > 0:
+                # Find end of that value
+                if json_str[last_good:last_good+2] == '",':
+                    json_str = json_str[:last_good+2]
+                elif json_str[last_good:last_good+2] in ['"]', '"}']:
+                    json_str = json_str[:last_good+2]
+
+            # Close any unclosed brackets
+            json_str += ']' * open_brackets + '}' * open_braces
+
+        return json_str
 
     @staticmethod
     def _normalize_vision_result(data: Dict[str, Any]) -> Dict[str, Any]:
