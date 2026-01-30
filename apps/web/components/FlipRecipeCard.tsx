@@ -84,12 +84,6 @@ export function FlipRecipeCard({ recipe, imageUrl, onEdit }: FlipRecipeCardProps
                     {recipe.servings && (
                       <span><strong>Serves:</strong> {recipe.servings}</span>
                     )}
-                    {recipe.prep_time && (
-                      <span><strong>Prep:</strong> {recipe.prep_time}m</span>
-                    )}
-                    {recipe.cook_time && (
-                      <span><strong>Cook:</strong> {recipe.cook_time}m</span>
-                    )}
                   </div>
                 </div>
 

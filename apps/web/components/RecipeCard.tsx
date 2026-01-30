@@ -30,18 +30,6 @@ export function RecipeCard({ recipe, onEdit }: RecipeCardProps) {
                 <span>{recipe.servings}</span>
               </div>
             )}
-            {recipe.prep_time && (
-              <div className="flex items-center gap-1">
-                <span className="font-medium">Prep:</span>
-                <span>{recipe.prep_time} mins</span>
-              </div>
-            )}
-            {recipe.cook_time && (
-              <div className="flex items-center gap-1">
-                <span className="font-medium">Cook:</span>
-                <span>{recipe.cook_time} mins</span>
-              </div>
-            )}
           </div>
         </div>
 
