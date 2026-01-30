@@ -241,6 +241,81 @@ def create_recipe(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class CleanupResponse(BaseModel):
+    """Response for cleanup operation."""
+    deleted_count: int
+    message: str
+
+
+@router.delete("/cleanup/empty", response_model=CleanupResponse)
+def cleanup_empty_recipes(
+    user_id: str = None,
+    db: Session = Depends(get_session),
+) -> CleanupResponse:
+    """
+    Delete all recipes that have no ingredients AND no steps (failed extractions).
+
+    This helps clean up recipes where OCR/vision extraction failed.
+    Only deletes recipes belonging to the specified user.
+
+    Args:
+        user_id: User UUID (required)
+        db: Database session
+
+    Returns:
+        Count of deleted recipes
+    """
+    from db.models import Recipe, SourceSpan, FieldStatus
+    from sqlalchemy import and_, or_
+
+    try:
+        if not user_id:
+            raise HTTPException(status_code=400, detail="user_id is required")
+
+        user_uuid = UUID(user_id)
+
+        # Find recipes with no ingredients AND no steps
+        empty_recipes = db.query(Recipe).filter(
+            and_(
+                Recipe.user_id == user_uuid,
+                or_(
+                    Recipe.ingredients == None,
+                    Recipe.ingredients == [],
+                ),
+                or_(
+                    Recipe.steps == None,
+                    Recipe.steps == [],
+                ),
+            )
+        ).all()
+
+        deleted_count = 0
+        for recipe in empty_recipes:
+            # Delete related SourceSpans
+            db.query(SourceSpan).filter_by(recipe_id=recipe.id).delete()
+            # Delete related FieldStatuses
+            db.query(FieldStatus).filter_by(recipe_id=recipe.id).delete()
+            # Delete the recipe
+            db.delete(recipe)
+            deleted_count += 1
+
+        db.commit()
+
+        logger.info(f"Cleaned up {deleted_count} empty recipes for user {user_id}")
+
+        return CleanupResponse(
+            deleted_count=deleted_count,
+            message=f"Deleted {deleted_count} recipes with no ingredients and no steps"
+        )
+
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id format")
+    except Exception as e:
+        logger.error(f"Cleanup failed: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/{recipe_id}", response_model=RecipeResponse)
 def get_recipe(
     recipe_id: str,
@@ -683,76 +758,3 @@ def list_field_statuses(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-class CleanupResponse(BaseModel):
-    """Response for cleanup operation."""
-    deleted_count: int
-    message: str
-
-
-@router.delete("/cleanup/empty", response_model=CleanupResponse)
-def cleanup_empty_recipes(
-    user_id: str = None,
-    db: Session = Depends(get_session),
-) -> CleanupResponse:
-    """
-    Delete all recipes that have no ingredients AND no steps (failed extractions).
-
-    This helps clean up recipes where OCR/vision extraction failed.
-    Only deletes recipes belonging to the specified user.
-
-    Args:
-        user_id: User UUID (required)
-        db: Database session
-
-    Returns:
-        Count of deleted recipes
-    """
-    from db.models import Recipe, SourceSpan, FieldStatus, MediaAsset
-    from sqlalchemy import and_, or_
-
-    try:
-        if not user_id:
-            raise HTTPException(status_code=400, detail="user_id is required")
-
-        user_uuid = UUID(user_id)
-
-        # Find recipes with no ingredients AND no steps
-        empty_recipes = db.query(Recipe).filter(
-            and_(
-                Recipe.user_id == user_uuid,
-                or_(
-                    Recipe.ingredients == None,
-                    Recipe.ingredients == [],
-                ),
-                or_(
-                    Recipe.steps == None,
-                    Recipe.steps == [],
-                ),
-            )
-        ).all()
-
-        deleted_count = 0
-        for recipe in empty_recipes:
-            # Delete related SourceSpans
-            db.query(SourceSpan).filter_by(recipe_id=recipe.id).delete()
-            # Delete related FieldStatuses
-            db.query(FieldStatus).filter_by(recipe_id=recipe.id).delete()
-            # Delete the recipe
-            db.delete(recipe)
-            deleted_count += 1
-
-        db.commit()
-
-        logger.info(f"Cleaned up {deleted_count} empty recipes for user {user_id}")
-
-        return CleanupResponse(
-            deleted_count=deleted_count,
-            message=f"Deleted {deleted_count} recipes with no ingredients and no steps"
-        )
-
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id format")
-    except Exception as e:
-        logger.error(f"Cleanup failed: {e}")
-        db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
