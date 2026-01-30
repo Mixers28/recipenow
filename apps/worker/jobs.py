@@ -181,7 +181,7 @@ async def ingest_job(
     try:
         # Get database session
         db_url = os.getenv("DATABASE_URL", "postgresql://recipenow:recipenow@postgres:5432/recipenow")
-        engine = create_engine(db_url)
+        engine = create_engine(db_url, connect_args={"prepare_threshold": None})
         SessionLocal = sessionmaker(bind=engine)
         db = SessionLocal()
 
@@ -272,7 +272,7 @@ async def extract_job(
 
     try:
         db_url = os.getenv("DATABASE_URL", "postgresql://recipenow:recipenow@postgres:5432/recipenow")
-        engine = create_engine(db_url)
+        engine = create_engine(db_url, connect_args={"prepare_threshold": None})
         SessionLocal = sessionmaker(bind=engine)
         db = SessionLocal()
 
@@ -494,7 +494,7 @@ async def normalize_job(ctx, recipe_id: str) -> dict:
     try:
         # Get database session
         db_url = os.getenv("DATABASE_URL", "postgresql://recipenow:recipenow@postgres:5432/recipenow")
-        engine = create_engine(db_url)
+        engine = create_engine(db_url, connect_args={"prepare_threshold": None})
         SessionLocal = sessionmaker(bind=engine)
         db = SessionLocal()
 
