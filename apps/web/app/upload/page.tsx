@@ -4,8 +4,8 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useRef, useState } from 'react'
-import { uploadAsset } from '@/lib/api'
+import { useRef, useState, useEffect } from 'react'
+import { uploadAsset, getRecipe } from '@/lib/api'
 
 const DEMO_USER_ID = '550e8400-e29b-41d4-a716-446655440000' // Demo user for testing
 
@@ -16,6 +16,70 @@ export default function UploadPage() {
   const [uploading, setUploading] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [dragActive, setDragActive] = useState(false)
+  const [processing, setProcessing] = useState(false)
+  const [processingStatus, setProcessingStatus] = useState('')
+  const [uploadedData, setUploadedData] = useState<{ recipe_id: string; asset_id: string } | null>(null)
+
+  // Poll for recipe extraction completion
+  useEffect(() => {
+    if (!uploadedData || !processing) return
+
+    let cancelled = false
+    let attempts = 0
+    const maxAttempts = 60 // 60 attempts * 2 seconds = 2 minutes max
+
+    const pollRecipe = async () => {
+      while (!cancelled && attempts < maxAttempts) {
+        attempts++
+        try {
+          const recipe = await getRecipe(DEMO_USER_ID, uploadedData.recipe_id)
+
+          // Check if extraction has populated the recipe
+          const hasTitle = recipe.title && recipe.title !== `Recipe from ${selectedFile?.name}`
+          const hasIngredients = recipe.ingredients && recipe.ingredients.length > 0
+          const hasSteps = recipe.steps && recipe.steps.length > 0
+
+          if (hasTitle || hasIngredients || hasSteps) {
+            setProcessingStatus('Recipe extracted! Redirecting...')
+            setTimeout(() => {
+              router.push(`/review/${uploadedData.recipe_id}?asset_id=${uploadedData.asset_id}`)
+            }, 500)
+            return
+          }
+
+          // Update status message
+          if (attempts < 10) {
+            setProcessingStatus('Analyzing image...')
+          } else if (attempts < 20) {
+            setProcessingStatus('Extracting recipe text...')
+          } else if (attempts < 40) {
+            setProcessingStatus('Processing with AI vision...')
+          } else {
+            setProcessingStatus('Still processing (large image)...')
+          }
+        } catch (err) {
+          console.error('Poll error:', err)
+        }
+
+        // Wait 2 seconds before next poll
+        await new Promise(resolve => setTimeout(resolve, 2000))
+      }
+
+      // Timeout - redirect anyway, user can refresh
+      if (!cancelled) {
+        setProcessingStatus('Processing is taking longer than expected. Redirecting...')
+        setTimeout(() => {
+          router.push(`/review/${uploadedData.recipe_id}?asset_id=${uploadedData.asset_id}`)
+        }, 1000)
+      }
+    }
+
+    pollRecipe()
+
+    return () => {
+      cancelled = true
+    }
+  }, [uploadedData, processing, router, selectedFile])
 
   const handleDrag = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault()
@@ -59,12 +123,15 @@ export default function UploadPage() {
       const sourceLabel = (e.currentTarget.elements.namedItem('source_label') as HTMLInputElement)?.value
 
       const data = await uploadAsset(selectedFile, DEMO_USER_ID, sourceLabel)
-      setMessage({ type: 'success', text: 'Upload successful! Redirecting to review...' })
 
-      // Redirect to review page with recipe_id and asset_id after 1 second
-      setTimeout(() => {
-        router.push(`/review/${data.recipe_id}?asset_id=${data.asset_id}`)
-      }, 1000)
+      // Start processing state and poll for completion
+      setUploading(false)
+      setProcessing(true)
+      setProcessingStatus('Upload complete! Starting extraction...')
+      setUploadedData({ recipe_id: data.recipe_id, asset_id: data.asset_id })
+
+      // Polling is handled by useEffect
+      return
     } catch (err) {
       setMessage({
         type: 'error',
@@ -75,9 +142,56 @@ export default function UploadPage() {
     }
   }
 
+  // Show processing screen while waiting for extraction
+  if (processing) {
+    return (
+      <div className="max-w-2xl mx-auto space-y-6">
+        <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Processing Recipe</h1>
+
+        <div className="bg-white rounded-lg shadow p-12 text-center space-y-6">
+          {/* Spinner */}
+          <div className="flex justify-center">
+            <div className="animate-spin rounded-full h-16 w-16 border-4 border-blue-200 border-t-blue-600"></div>
+          </div>
+
+          {/* Status message */}
+          <div className="space-y-2">
+            <p className="text-xl font-medium text-gray-900">{processingStatus}</p>
+            <p className="text-gray-600">
+              Our AI is reading your recipe image and extracting the details.
+            </p>
+          </div>
+
+          {/* File info */}
+          {selectedFile && (
+            <div className="bg-gray-50 rounded-lg p-4 text-sm text-gray-600">
+              <p className="font-medium">{selectedFile.name}</p>
+              <p>{(selectedFile.size / 1024 / 1024).toFixed(2)} MB</p>
+            </div>
+          )}
+
+          {/* Progress indicators */}
+          <div className="flex justify-center gap-2">
+            <div className="w-3 h-3 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+            <div className="w-3 h-3 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+            <div className="w-3 h-3 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+          </div>
+        </div>
+
+        {/* Info */}
+        <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg text-sm text-blue-800">
+          <p>
+            <strong>Tip:</strong> This usually takes 10-30 seconds depending on image complexity.
+            You'll be redirected automatically when ready.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="max-w-2xl mx-auto space-y-6">
-      <h1 className="text-2xl md:text-3xl font-bold text-gray-900">⬆️ Upload Recipe</h1>
+      <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Upload Recipe</h1>
 
       <div className="bg-white rounded-lg shadow p-8">
         <form onSubmit={handleUpload} className="space-y-6">

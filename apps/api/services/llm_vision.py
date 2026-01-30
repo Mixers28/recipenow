@@ -42,7 +42,7 @@ class LLMVisionService:
         api_key: Optional[str] = None,
     ):
         self.model = model or os.getenv("VISION_MODEL", "gpt-4o-mini")
-        self.max_tokens = max_tokens or int(os.getenv("VISION_MAX_OUTPUT_TOKENS", "2048"))
+        self.max_tokens = max_tokens or int(os.getenv("VISION_MAX_OUTPUT_TOKENS", "4096"))
         self.strict_json = (
             strict_json
             if strict_json is not None
