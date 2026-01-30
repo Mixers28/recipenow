@@ -164,8 +164,9 @@ async def ingest_job(
     import sys
     from io import BytesIO
 
-    # Add packages to path for imports
-    sys.path.insert(0, "/packages")
+    # Add packages and api code to path for imports
+    sys.path.insert(0, "/app/packages")
+    sys.path.insert(0, "/app/apps")
 
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
