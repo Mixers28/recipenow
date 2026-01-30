@@ -72,8 +72,10 @@ export function ImageCropSelector({
   }, [])
 
   // Handle touch events for mobile
+  // preventDefault stops page scrolling while drawing crop box
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
     if (e.touches.length !== 1) return
+    e.preventDefault() // Prevent page scroll
     const touch = e.touches[0]
     const pos = getPercentagePosition(touch.clientX, touch.clientY)
     setDragStart(pos)
@@ -82,6 +84,7 @@ export function ImageCropSelector({
 
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
     if (!isDragging || !dragStart || e.touches.length !== 1) return
+    e.preventDefault() // Prevent page scroll
 
     const touch = e.touches[0]
     const pos = getPercentagePosition(touch.clientX, touch.clientY)
@@ -96,7 +99,8 @@ export function ImageCropSelector({
     setCrop(newCrop)
   }, [isDragging, dragStart, getPercentagePosition])
 
-  const handleTouchEnd = useCallback(() => {
+  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+    e.preventDefault() // Prevent any follow-up actions
     setIsDragging(false)
     setDragStart(null)
   }, [])
@@ -108,9 +112,11 @@ export function ImageCropSelector({
       </div>
 
       {/* Image with crop overlay */}
+      {/* touch-action: none prevents browser from handling touch for scroll/zoom */}
       <div
         ref={containerRef}
         className="relative w-full bg-gray-100 rounded-lg overflow-hidden cursor-crosshair select-none"
+        style={{ touchAction: 'none' }}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
