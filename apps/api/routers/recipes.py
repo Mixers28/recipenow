@@ -275,16 +275,20 @@ def cleanup_empty_recipes(
         user_uuid = UUID(user_id)
 
         # Find recipes with no ingredients AND no steps
+        # Use text comparison for JSONB empty array check
+        from sqlalchemy import text, cast
+        from sqlalchemy.dialects.postgresql import JSONB
+
         empty_recipes = db.query(Recipe).filter(
             and_(
                 Recipe.user_id == user_uuid,
                 or_(
                     Recipe.ingredients == None,
-                    Recipe.ingredients == [],
+                    cast(Recipe.ingredients, JSONB) == cast('[]', JSONB),
                 ),
                 or_(
                     Recipe.steps == None,
-                    Recipe.steps == [],
+                    cast(Recipe.steps, JSONB) == cast('[]', JSONB),
                 ),
             )
         ).all()
