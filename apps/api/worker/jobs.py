@@ -596,6 +596,7 @@ async def normalize_recipe(
 
 # ARQ compatibility wrappers (used by worker.jobs.WorkerSettings)
 async def ingest_job(
+    ctx,
     asset_id: str,
     use_gpu: bool = False,
     user_id: Optional[str] = None,
@@ -615,6 +616,7 @@ async def ingest_job(
 
 
 async def extract_job(
+    ctx,
     asset_id: str,
     user_id: str,
     recipe_id: Optional[str] = None,
@@ -629,6 +631,7 @@ async def extract_job(
 
 
 async def structure_job(
+    ctx,
     asset_id: str,
     user_id: str,
     recipe_id: Optional[str] = None,
@@ -641,6 +644,7 @@ async def structure_job(
 
 
 async def normalize_job(
+    ctx,
     recipe_id: str,
     user_id: str,
 ) -> Dict[str, Any]:
