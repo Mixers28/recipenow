@@ -75,12 +75,21 @@ class Nutrition(BaseModel):
     approved_by_user: bool = False
 
 
+class ServingsEstimate(BaseModel):
+    """Derived servings estimate that requires explicit user approval."""
+    value: Optional[int] = None
+    confidence: Optional[float] = None
+    basis: Optional[str] = None
+    approved_by_user: bool = False
+
+
 class Recipe(BaseModel):
     """Complete recipe with provenance tracking."""
     id: Optional[UUID] = None
     user_id: UUID
     title: Optional[str] = None
     servings: Optional[int] = None
+    servings_estimate: Optional[ServingsEstimate] = None
     times: Optional[Times] = None
     ingredients: List[Ingredient] = Field(default_factory=list)
     steps: List[Step] = Field(default_factory=list)
@@ -105,6 +114,8 @@ class SourceSpan(BaseModel):
     bbox: List[float] = Field(..., description="[x, y, width, height] in pixels")
     ocr_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     extracted_text: Optional[str] = Field(None, description="The actual OCR text")
+    source_method: Literal["ocr", "vision-api", "user"] = "ocr"
+    evidence: Optional[dict] = Field(None, description="Evidence metadata, e.g., OCR line IDs")
     created_at: Optional[datetime] = None
 
     class Config:

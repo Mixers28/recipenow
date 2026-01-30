@@ -24,6 +24,7 @@ class RecipeCreateRequest(BaseModel):
 
     title: str
     servings: Optional[int] = None
+    servings_estimate: Optional[dict] = None
     ingredients: Optional[list] = None
     steps: Optional[list] = None
     tags: Optional[List[str]] = None
@@ -37,6 +38,7 @@ class RecipeResponse(BaseModel):
     user_id: str
     title: Optional[str]
     servings: Optional[int]
+    servings_estimate: Optional[dict] = None
     ingredients: Optional[list]
     steps: Optional[list]
     tags: Optional[list]
@@ -54,6 +56,7 @@ class RecipePatchRequest(BaseModel):
 
     title: Optional[str] = None
     servings: Optional[int] = None
+    servings_estimate: Optional[dict] = None
     ingredients: Optional[list] = None
     steps: Optional[list] = None
     tags: Optional[List[str]] = None
@@ -86,6 +89,8 @@ class SourceSpanCreateRequest(BaseModel):
     bbox: List[int]
     ocr_confidence: float
     extracted_text: str
+    source_method: Optional[str] = "ocr"
+    evidence: Optional[dict] = None
 
 
 class SourceSpanResponse(BaseModel):
@@ -100,6 +105,7 @@ class SourceSpanResponse(BaseModel):
     ocr_confidence: float
     extracted_text: str
     source_method: str = "ocr"
+    evidence: Optional[dict] = None
     created_at: Optional[str]
 
     class Config:
@@ -166,6 +172,7 @@ def list_recipes(
                     user_id=str(r.user_id),
                     title=r.title,
                     servings=r.servings,
+                    servings_estimate=r.servings_estimate,
                     ingredients=r.ingredients,
                     steps=r.steps,
                     tags=r.tags,
@@ -214,6 +221,7 @@ def create_recipe(
             user_id=UUID(user_id),
             title=payload.title,
             servings=payload.servings,
+            servings_estimate=payload.servings_estimate,
             ingredients=payload.ingredients,
             steps=payload.steps,
             tags=payload.tags,
@@ -225,6 +233,7 @@ def create_recipe(
             user_id=str(recipe.user_id),
             title=recipe.title,
             servings=recipe.servings,
+            servings_estimate=recipe.servings_estimate,
             ingredients=recipe.ingredients,
             steps=recipe.steps,
             tags=recipe.tags,
@@ -273,6 +282,7 @@ def get_recipe(
             user_id=str(recipe.user_id),
             title=recipe.title,
             servings=recipe.servings,
+            servings_estimate=recipe.servings_estimate,
             ingredients=recipe.ingredients,
             steps=recipe.steps,
             tags=recipe.tags,
@@ -333,6 +343,8 @@ def update_recipe(
                 field_paths_modified.add("title")
             if "servings" in update_data:
                 field_paths_modified.add("servings")
+            if "servings_estimate" in update_data:
+                field_paths_modified.add("servings_estimate")
             if "ingredients" in update_data:
                 for i in range(len(update_data.get("ingredients", []))):
                     field_paths_modified.add(f"ingredients[{i}].original_text")
@@ -354,6 +366,7 @@ def update_recipe(
             user_id=str(recipe.user_id),
             title=recipe.title,
             servings=recipe.servings,
+            servings_estimate=recipe.servings_estimate,
             ingredients=recipe.ingredients,
             steps=recipe.steps,
             tags=recipe.tags,
@@ -510,6 +523,8 @@ def create_span(
             bbox=payload.bbox,
             ocr_confidence=payload.ocr_confidence,
             extracted_text=payload.extracted_text,
+            source_method=payload.source_method or "ocr",
+            evidence=payload.evidence,
         )
 
         return SourceSpanResponse(
@@ -521,6 +536,8 @@ def create_span(
             bbox=span.bbox,
             ocr_confidence=span.ocr_confidence,
             extracted_text=span.extracted_text,
+            source_method=span.source_method,
+            evidence=span.evidence,
             created_at=span.created_at.isoformat() if span.created_at else None,
         )
 
@@ -573,7 +590,8 @@ def list_spans(
                 bbox=s.bbox,
                 ocr_confidence=s.ocr_confidence,
                 extracted_text=s.extracted_text,
-                source_method=s.source_method if hasattr(s, 'source_method') else "ocr",
+                source_method=s.source_method if hasattr(s, "source_method") else "ocr",
+                evidence=s.evidence if hasattr(s, "evidence") else None,
                 created_at=s.created_at.isoformat() if s.created_at else None,
             )
             for s in spans

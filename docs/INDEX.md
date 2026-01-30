@@ -1,4 +1,4 @@
-# Documentation Index - Sprint 2-3 (OCR Enhancement + LLM Vision Fallback)
+# Documentation Index - V1.1 (Vision-Primary Extraction)
 
 **Quick Navigation:** Use this index to find the right document for your role/question.
 
@@ -44,7 +44,7 @@
 
 **Key Code Files:**
 - [apps/api/services/ocr.py](../apps/api/services/ocr.py) - Rotation detection
-- [apps/api/services/llm_vision.py](../apps/api/services/llm_vision.py) - LLM fallback
+- [apps/api/services/llm_vision.py](../apps/api/services/llm_vision.py) - Vision extraction (OpenAI)
 - [apps/api/worker/jobs.py](../apps/api/worker/jobs.py) - Job pipeline
 
 ---
@@ -91,7 +91,7 @@
 - What APIs do I call? → SPEC.md (Data flow & interfaces)
 
 **Next Sprint Tasks:**
-- Implement source badges (OCR=blue, LLM=purple, User=green, Missing=red)
+- Implement source badges (OCR=blue, Vision=purple, User=green, Missing=red)
 - Display SourceSpan.source_method in RecipeForm
 - Allow field overrides by user
 
@@ -105,9 +105,9 @@
 **The Source of Truth**
 - Architecture overview
 - Invariants & constraints (9 total)
-- Two-stage OCR pipeline specification
-- Rotation detection algorithm
-- LLM vision fallback design
+- Vision-primary extraction specification
+- OCR evidence requirements for bbox provenance
+- RecipeCard contract + servings estimate approval
 - Sprint-by-sprint implementation plan
 - Acceptance criteria for each ticket
 
@@ -145,7 +145,7 @@
 #### [TESTING_GUIDE.md](TESTING_GUIDE.md)
 **Complete Testing Instructions**
 - Prerequisites (system dependencies, Python packages)
-- Unit tests for OCR, LLM, jobs
+- Unit tests for OCR, Vision, jobs
 - Integration end-to-end tests
 - Manual testing procedures
 - Performance benchmarks
@@ -331,11 +331,11 @@ SPEC.md (canonical source of truth)
 - TESTING_GUIDE.md → Test Rotation Detection
 - QUICK_START.md → Test Rotation Detection
 
-### LLM Vision Fallback
-- SPEC.md → LLM Vision Fallback section
+### Vision Extraction
+- SPEC.md → Vision-API Extract section
 - IMPLEMENTATION_PROGRESS.md → LLMVisionService
-- TESTING_GUIDE.md → Test LLM Vision Service
-- QUICK_START.md → Test LLM Extraction
+- TESTING_GUIDE.md → Test Vision Service
+- QUICK_START.md → Test Vision Extraction
 
 ### Job Pipeline
 - SPEC.md → Job Design & Triggers
@@ -363,7 +363,7 @@ SPEC.md (canonical source of truth)
 For questions about:
 - **Architecture:** See SPEC.md and Architect agent notes
 - **OCR Implementation:** See IMPLEMENTATION_PROGRESS.md (OCRService section)
-- **LLM Integration:** See IMPLEMENTATION_PROGRESS.md (LLMVisionService section)
+- **Vision Integration:** See IMPLEMENTATION_PROGRESS.md (LLMVisionService section)
 - **Testing:** See TESTING_GUIDE.md
 - **Deployment:** See DEPLOYMENT_CHECKLIST.md
 - **General:** See QUICK_START.md
@@ -372,7 +372,7 @@ For questions about:
 
 ## Version Information
 
-- **SPEC.md Version:** 2.1 (OCR Enhancement + LLM Vision Fallback)
+- **SPEC.md Version:** V1.1 (vision-primary)
 - **Sprint:** 2-3 (Ingest & OCR, Structure & Normalize)
 - **Python Version:** 3.10+
 - **Last Updated:** Sprint 2-3 Completion

@@ -1,9 +1,10 @@
 # RecipeNow
 
-RecipeNow is a self-hosted, privacy-first recipe pipeline that turns uploaded
-recipe media (photos, screenshots, PDFs) into verified, provenance-backed
-recipes. Every extracted field is traceable to source pixels, and the split-view
-review UI makes correction and verification fast.
+RecipeNow is a privacy-first recipe pipeline that turns uploaded recipe media
+(photos, screenshots, PDFs) into verified, provenance-backed recipes. Every
+extracted field is traceable to source pixels, and the split-view review UI
+makes correction and verification fast. Extraction is vision-primary via the
+OpenAI Vision API with OCR used strictly for bbox provenance (no local LLMs).
 
 ## Current Status
 
@@ -44,6 +45,12 @@ docs/
 
 ## Quickstart (Docker)
 
+Set OpenAI environment variables (required for vision extraction):
+```bash
+export OPENAI_API_KEY=...
+export VISION_MODEL=...
+```
+
 ```bash
 docker compose -f infra/docker-compose.yml up --build
 ```
@@ -62,6 +69,8 @@ source .venv/bin/activate
 pip install -r apps/api/requirements.txt
 DATABASE_URL=postgresql+psycopg://recipenow:recipenow@localhost:5432/recipenow \
 REDIS_URL=redis://localhost:6379 \
+OPENAI_API_KEY=... \
+VISION_MODEL=... \
 uvicorn apps.api.main:app --reload
 ```
 
@@ -71,6 +80,8 @@ source .venv/bin/activate
 pip install -r apps/worker/requirements.txt
 DATABASE_URL=postgresql+psycopg://recipenow:recipenow@localhost:5432/recipenow \
 REDIS_URL=redis://localhost:6379 \
+OPENAI_API_KEY=... \
+VISION_MODEL=... \
 arq apps.worker.worker.WorkerSettings
 ```
 
@@ -87,6 +98,7 @@ NEXT_PUBLIC_API_URL=http://localhost:8000 npm run dev
 - Provenance per field: every extracted field has SourceSpans or is marked missing
 - Verification gating: title + >= 1 ingredient + >= 1 step required before verify
 - Review-first workflow: split-view UI is the primary workflow, not a power user path
+- Hosted vision only: OpenAI Vision API primary; no local/self-hosted LLMs
 
 ## Documentation
 

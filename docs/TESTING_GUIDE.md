@@ -1,4 +1,4 @@
-# Testing Guide - OCR Enhancement + LLM Vision Fallback
+# Testing Guide - Vision-Primary Extraction
 
 ## Prerequisites
 
@@ -30,19 +30,7 @@ pip install -r requirements.txt
 
 Key packages:
 - `paddleocr` - Primary OCR engine
-- `httpx` - HTTP client for Ollama
-- `anthropic` - Claude API (optional)
-- `openai` - GPT-4 Vision API (optional)
-
-### Ollama Setup (for offline LLM fallback)
-```bash
-# 1. Install Ollama from https://ollama.ai
-# 2. Pull LLaVA model
-ollama pull llava:7b
-
-# 3. Verify it's running (default: http://localhost:11434)
-curl http://localhost:11434/api/tags
-```
+- `openai` - OpenAI Vision API client (required)
 
 ## Unit Tests
 
@@ -126,30 +114,20 @@ def test_extract_text_rotated_image(ocr_service):
     assert any("recipe" in line.text.lower() for line in ocr_lines)
 ```
 
-### Test LLM Vision Service
+### Test Vision Service
 **File:** `apps/api/tests/test_llm_vision.py`
 
 ```python
 import pytest
 import os
 from apps.api.services.llm_vision import LLMVisionService, get_llm_vision_service
-from pathlib import Path
-
-@pytest.fixture
-def llm_service():
-    # Use test environment (localhost Ollama)
-    return LLMVisionService(
-        ollama_host="http://localhost:11434",
-        ollama_model="llava:7b",
-        enable_fallback=False,  # Don't try cloud in tests
-    )
 
 @pytest.mark.skipif(
-    not os.getenv("OLLAMA_HOST"),
-    reason="Ollama not running"
+    not os.getenv("OPENAI_API_KEY"),
+    reason="OPENAI_API_KEY not set",
 )
-def test_ollama_extraction(llm_service):
-    """Test LLM extraction via Ollama."""
+def test_vision_extract():
+    llm_service = get_llm_vision_service()
     with open("tests/fixtures/recipe_sparse.jpg", "rb") as f:
         image_data = f.read()
     
@@ -162,10 +140,10 @@ def test_ollama_extraction(llm_service):
         result.get("ingredients") or 
         result.get("steps")
     )
-    assert has_content, "LLM should extract at least some fields"
+    assert has_content, "Vision extractor should return at least some fields"
 
 def test_json_parsing():
-    """Test JSON extraction from LLM response."""
+    """Test JSON extraction from vision response."""
     response_text = '''
     The recipe has the following:
     {
@@ -192,10 +170,8 @@ import asyncio
 from io import BytesIO
 from apps.api.worker.jobs import (
     ingest_recipe,
-    structure_recipe,
+    extract_recipe,
     normalize_recipe,
-    _check_missing_critical_fields,
-    _merge_llm_fallback,
 )
 from pathlib import Path
 
@@ -215,64 +191,25 @@ async def test_ingest_recipe():
     assert result["status"] == "success"
     assert result["ocr_line_count"] > 0
 
-def test_check_missing_critical_fields():
-    """Test detection of missing critical fields."""
-    # Complete recipe
-    complete = {
-        "title": "Cake",
-        "ingredients": ["flour"],
-        "steps": ["bake"],
-    }
-    assert _check_missing_critical_fields(complete) == []
-    
-    # Missing title
-    no_title = {
-        "title": None,
-        "ingredients": ["flour"],
-        "steps": ["bake"],
-    }
-    assert "title" in _check_missing_critical_fields(no_title)
-    
-    # Missing ingredients
-    no_ingredients = {
-        "title": "Cake",
-        "ingredients": [],
-        "steps": ["bake"],
-    }
-    assert "ingredients" in _check_missing_critical_fields(no_ingredients)
-
-def test_merge_llm_fallback():
-    """Test merging OCR and LLM results."""
-    ocr_result = {
-        "title": "Chocolate Cake",
-        "ingredients": ["flour", "cocoa"],
-        "steps": None,  # Missing
-        "servings": None,
-    }
-    
-    llm_result = {
-        "steps": ["Mix", "Bake", "Cool"],
-        "servings": "8",
-    }
-    
-    missing = ["steps"]
-    merged = _merge_llm_fallback(ocr_result, llm_result, missing)
-    
-    # OCR title preserved
-    assert merged["title"] == "Chocolate Cake"
-    
-    # LLM steps filled in
-    assert merged["steps"] == ["Mix", "Bake", "Cool"]
-    
-    # Servings filled (optional field)
-    assert merged["servings"] == "8"
-
 @pytest.mark.asyncio
-async def test_structure_recipe_with_fallback():
-    """Test structure job with LLM fallback."""
-    # This would require setting up test database
-    # Skipped for now; see integration tests below
-    pass
+async def test_extract_recipe():
+    """Test vision extract job with real image."""
+    with open("tests/fixtures/recipe_upright.jpg", "rb") as f:
+        file_data = f.read()
+
+    await ingest_recipe(
+        asset_id="test-asset-1",
+        user_id="test-user-1",
+        file_data=file_data,
+        asset_type="image",
+    )
+
+    result = await extract_recipe(
+        asset_id="test-asset-1",
+        user_id="test-user-1",
+    )
+
+    assert result["status"] == "success"
 ```
 
 ## Integration Tests
@@ -285,13 +222,13 @@ import pytest
 import asyncio
 from io import BytesIO
 from pathlib import Path
-from apps.api.worker.jobs import ingest_recipe, structure_recipe, normalize_recipe
+from apps.api.worker.jobs import ingest_recipe, extract_recipe, normalize_recipe
 from apps.api.db.session import SessionLocal
 from apps.api.db.models import Asset, Recipe, SourceSpan
 
 @pytest.mark.asyncio
 async def test_full_pipeline_upright_recipe():
-    """Test full pipeline: upload → ingest → structure → normalize."""
+    """Test full pipeline: upload → ingest → extract → normalize."""
     # Load test image
     test_image_path = Path("tests/fixtures/recipe_upright.jpg")
     with open(test_image_path, "rb") as f:
@@ -305,10 +242,10 @@ async def test_full_pipeline_upright_recipe():
     assert ingest_result["status"] == "success"
     assert ingest_result["ocr_line_count"] > 0
     
-    # Step 2: Structure
-    structure_result = await structure_recipe(asset_id, user_id)
-    assert structure_result["status"] == "success"
-    recipe_id = structure_result["recipe_id"]
+    # Step 2: Extract (vision-primary)
+    extract_result = await extract_recipe(asset_id, user_id)
+    assert extract_result["status"] == "success"
+    recipe_id = extract_result["recipe_id"]
     
     # Verify database
     db = SessionLocal()
@@ -325,10 +262,10 @@ async def test_full_pipeline_upright_recipe():
         ).all()
         assert len(spans) > 0
         
-        # All OCR spans should have source_method="ocr"
+        # All spans should have source_method="ocr" or "vision-api"
         for span in spans:
             if span.extracted_text:  # Only if successfully extracted
-                assert span.source_method in ["ocr", "llm-vision"]
+                assert span.source_method in ["ocr", "vision-api"]
     
     finally:
         db.close()
@@ -355,37 +292,6 @@ async def test_full_pipeline_rotated_recipe():
     # Should extract content despite rotation
     assert ingest_result["ocr_line_count"] > 0
 
-@pytest.mark.asyncio
-async def test_llm_fallback_triggered_on_sparse_ocr():
-    """Test LLM fallback when OCR is sparse."""
-    # Use an image that causes OCR to fail/return sparse results
-    # (e.g., very low quality, unusual layout)
-    test_image_path = Path("tests/fixtures/recipe_sparse.jpg")
-    
-    with open(test_image_path, "rb") as f:
-        file_data = f.read()
-    
-    asset_id = "test-asset-sparse-1"
-    user_id = "test-user-1"
-    
-    ingest_result = await ingest_recipe(asset_id, user_id, file_data)
-    assert ingest_result["status"] == "success"
-    
-    # Structure job should invoke LLM fallback
-    structure_result = await structure_recipe(asset_id, user_id)
-    
-    # Even with sparse OCR, LLM should provide some extraction
-    if structure_result["status"] == "success":
-        db = SessionLocal()
-        try:
-            recipe_id = structure_result["recipe_id"]
-            recipe = db.query(Recipe).filter(Recipe.id == recipe_id).first()
-            
-            # At least title or ingredients should be filled
-            has_content = recipe.title or len(recipe.ingredients) > 0
-            assert has_content or structure_result["status"] == "failed"
-        finally:
-            db.close()
 ```
 
 ## Manual Testing
@@ -437,8 +343,7 @@ for line in ocr_lines[:5]:
 "
 ```
 
-### Step 4: Test LLM Vision
-Ensure Ollama is running, then:
+### Step 4: Test Vision Extraction
 ```bash
 python -c "
 from apps.api.services.llm_vision import get_llm_vision_service
@@ -449,7 +354,7 @@ service = get_llm_vision_service()
 with open('tests/fixtures/recipe_sparse.jpg', 'rb') as f:
     result = service.extract_recipe_from_image(f.read())
 
-print('LLM extracted fields:', list(result.keys()))
+print('Vision extracted fields:', list(result.keys()))
 print('Title:', result.get('title'))
 print('Ingredients:', len(result.get('ingredients', [])))
 print('Steps:', len(result.get('steps', [])))
@@ -464,9 +369,8 @@ print('Steps:', len(result.get('steps', [])))
 |-----------|--------|-------|
 | Rotation detection | < 5 sec | Tesseract PSM 0 + voting |
 | OCR extraction | < 10 sec | PaddleOCR on GPU, ~ 2 sec on CPU |
-| LLM fallback (Ollama) | < 30 sec | Dependent on model (LLaVA-7B) |
-| LLM fallback (Cloud) | < 10 sec | Claude or OpenAI API |
-| Parsing | < 1 sec | Deterministic parser |
+| Vision extraction (OpenAI) | < 10 sec | OpenAI API |
+| Parsing | < 1 sec | Deterministic parser (fallback only) |
 | Normalization | < 1 sec | Dedup + validation |
 
 ### Measurement Script
@@ -514,30 +418,17 @@ which convert
 # macOS: brew install imagemagick
 ```
 
-### Ollama Connection Failed
-```bash
-# Verify Ollama is running
-curl http://localhost:11434/api/tags
-
-# If fails, start Ollama:
-ollama serve
-
-# Pull model if not present:
-ollama pull llava:7b
-```
-
-### LLM Response Parsing Fails
-- Check LLM response format (should be JSON or include JSON block)
+### Vision Response Parsing Fails
+- Check vision response format (should be JSON or include JSON block)
 - Enable debug logging to see raw response: `logger.debug(response_text)`
-- Try cloud fallback if Ollama response malformed
 
 ### OCR Returns Empty Results
 - Check image quality (very blurry/low res may fail)
 - Verify image is actually a recipe (not pure graphics)
 - Try with rotation detection enabled
-- If all else fails, LLM fallback should still extract some content
+- Verify OpenAI API key/model configuration and retry
 
 ---
 
 **Last Updated:** Sprint 2-3 Implementation  
-**SPEC.md Version:** 2.1
+**SPEC.md Version:** V1.1

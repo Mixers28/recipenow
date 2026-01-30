@@ -25,6 +25,8 @@ class SourceSpanRepository:
         bbox: List[int],
         ocr_confidence: float,
         extracted_text: str,
+        source_method: str = "ocr",
+        evidence: Optional[dict] = None,
     ) -> SourceSpan:
         """
         Create a new SourceSpan.
@@ -49,6 +51,8 @@ class SourceSpanRepository:
             bbox=bbox,
             ocr_confidence=ocr_confidence,
             extracted_text=extracted_text,
+            source_method=source_method,
+            evidence=evidence,
         )
         self.db.add(span)
         self.db.commit()
@@ -116,6 +120,8 @@ class SourceSpanRepository:
             "ocr_confidence",
             "extracted_text",
             "page",
+            "source_method",
+            "evidence",
         }
         for key, value in kwargs.items():
             if key in allowed_fields:

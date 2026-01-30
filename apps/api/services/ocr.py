@@ -147,14 +147,13 @@ class OCRService:
     def extract_text(self, file_data: BinaryIO, asset_type: str = "image") -> List[OCRLineData]:
         """
         Extract text from image/PDF using PaddleOCR with preprocessing.
-
+        
         Steps:
         1. Save to temp file
-        2. Resize large images (speed optimization)
-        3. Detect and correct orientation (if image)
-        4. Run OCR
-        5. Parse results into OCRLineData
-
+        2. Detect and correct orientation (if image)
+        3. Run OCR
+        4. Parse results into OCRLineData
+        
         Args:
             file_data: File-like object (image or PDF)
             asset_type: 'image' or 'pdf'
@@ -163,45 +162,26 @@ class OCRService:
         """
         tmp_path = None
         rotated_path = None
-        resized_path = None
-
+        
         try:
             # Step 1: Save to temp file
             with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
                 tmp_path = tmp.name
                 tmp.write(file_data.read())
-
+            
             ocr_image_path = tmp_path
             rotation_applied = 0
-
-            # Step 2: Resize large images for faster OCR (max 2000px on longest side)
-            if asset_type == "image":
-                try:
-                    from PIL import Image
-                    img = Image.open(tmp_path)
-                    max_dimension = max(img.size)
-                    if max_dimension > 2000:
-                        scale = 2000 / max_dimension
-                        new_size = (int(img.size[0] * scale), int(img.size[1] * scale))
-                        img_resized = img.resize(new_size, Image.Resampling.LANCZOS)
-                        resized_path = str(Path(tmp_path).with_stem(f"{Path(tmp_path).stem}_resized"))
-                        img_resized.save(resized_path)
-                        ocr_image_path = resized_path
-                        logger.info(f"Resized image from {img.size} to {new_size} for faster OCR")
-                except Exception as e:
-                    logger.warning(f"Failed to resize image: {e}; using original")
-                    ocr_image_path = tmp_path
             
-            # Step 3: Detect and correct orientation (if image)
+            # Step 2: Detect and correct orientation (if image)
             if self.enable_rotation_detection and asset_type == "image":
-                ocr_image_path, rotation_applied = self._detect_and_correct_rotation(ocr_image_path)
+                ocr_image_path, rotation_applied = self._detect_and_correct_rotation(tmp_path)
                 if rotation_applied != 0:
                     rotated_path = ocr_image_path
-                    logger.info(f"Rotation detection applied {rotation_applied}° to image")
+                    logger.info(f"Rotation detection applied {rotation_applied}° to {tmp_path}")
             
-            # Step 4: Run OCR
+            # Step 3: Run OCR
             logger.debug(f"Running OCR on {ocr_image_path}")
-            result = self.ocr.ocr(ocr_image_path)
+            result = self.ocr.ocr(ocr_image_path, cls=True)
             
             if isinstance(result, tuple) and result:
                 result = result[0]
@@ -288,8 +268,6 @@ class OCRService:
             # Clean up temp files
             if tmp_path and os.path.exists(tmp_path):
                 os.unlink(tmp_path)
-            if resized_path and resized_path != tmp_path and os.path.exists(resized_path):
-                os.unlink(resized_path)
             if rotated_path and rotated_path != tmp_path and os.path.exists(rotated_path):
                 os.unlink(rotated_path)
 

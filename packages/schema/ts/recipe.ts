@@ -19,6 +19,13 @@ export interface Nutrition {
   approved_by_user: boolean;
 }
 
+export interface ServingsEstimate {
+  value?: number;
+  confidence?: number;
+  basis?: string;
+  approved_by_user: boolean;
+}
+
 export interface Ingredient {
   id?: string;
   original_text: string;
@@ -38,6 +45,7 @@ export interface Recipe {
   userId: string;
   title?: string;
   servings?: number;
+  servings_estimate?: ServingsEstimate;
   times?: Times;
   ingredients: Ingredient[];
   steps: Step[];
@@ -78,6 +86,8 @@ export interface SourceSpan {
   bbox: number[];
   ocr_confidence: number;
   extracted_text?: string;
+  source_method?: "ocr" | "vision-api" | "user";
+  evidence?: Record<string, unknown>;
   created_at?: string;
 }
 

@@ -1,15 +1,16 @@
-# Offline LLM Strategy for RecipeNow
+# Offline LLM Strategy for RecipeNow (Deprecated)
 
-**Status:** Strategic Proposal  
+**Status:** Deprecated (OpenAI Vision API is primary; no local/self-hosted LLMs)  
 **Date:** January 25, 2026  
 **Audience:** Architects, Coder Agents  
-**Priority:** HIGH (better than cloud APIs for self-hosted use case)
+**Priority:** N/A
+
+**Note:** This document is retained for historical context only. Current architecture uses the OpenAI Vision API as the primary extractor with OCR for bbox provenance (see `docs/SPEC.md`).
 
 ---
 
 ## Executive Summary
 
-RecipeNow should use **Ollama + LLaVA** (offline multimodal LLM) instead of cloud-based LLMs (Claude/OpenAI). This approach:
 
 ✅ **Preserves privacy:** Images never leave the server  
 ✅ **Eliminates API costs:** $0 per recipe (one-time model download)  
@@ -53,7 +54,6 @@ User Review UI (manual correction)
 
 **Gap:** No visual context; parser can't infer from layout
 
-### Proposed Flow (Ollama + LLaVA Hybrid)
 ```
 Recipe Image 
   ↓
@@ -80,28 +80,20 @@ User Review UI (source badges: ocr, llm-vision, manual)
 
 ## Offline LLM Deployment Options
 
-### Option 1: Ollama Service (RECOMMENDED)
 **Best for:** Self-hosted, Docker-friendly, easy model management
 
 ```yaml
 # Add to docker-compose.yml
-ollama:
-  image: ollama/ollama:latest
-  container_name: recipenow-ollama
   ports:
     - "11434:11434"
   volumes:
-    - ollama_data:/root/.ollama
   environment:
-    OLLAMA_HOST: 0.0.0.0:11434
     # Optional: GPU support (nvidia-docker)
-    # OLLAMA_CUDA_COMPUTE_CAPABILITY: "8.0"  # Adjust for your GPU
 ```
 
 **Startup:**
 ```bash
 # First time: pull the model (takes ~3-5 min on good connection)
-ollama pull llava:7b
 
 # Service auto-loads models on /api requests
 # REST API available at http://localhost:11434
@@ -128,34 +120,22 @@ wget https://huggingface.co/models/llava/llava-1.5-7b-gguf/...
 ```
 
 **Pros:** CPU-only, 2-3 GB quantized, slower (~10-15s per image)  
-**Cons:** Requires manual setup; less convenient than Ollama
 
 ---
 
 ## RecipeNow Integration Plan
 
-### Phase 1: Ollama Infrastructure (2-3 days)
-**Goal:** Get Ollama running alongside API/Worker
 
 **Tasks:**
-1. Update `docker-compose.yml` to add Ollama service
-2. Add `ollama-python` client to `apps/api/requirements.txt`
-3. Create `apps/api/services/llm_fallback.py` (Ollama-based extractor)
-4. Test local: `ollama run llava:7b`
 
 **Implementation:**
 
 **File:** `infra/docker-compose.yml` (add service)
 ```yaml
-ollama:
-  image: ollama/ollama:latest
-  container_name: recipenow-ollama
   ports:
     - "11434:11434"
   volumes:
-    - ollama_data:/root/.ollama
   environment:
-    OLLAMA_HOST: 0.0.0.0:11434
   # Optional: GPU support for Railway
   deploy:
     resources:
@@ -166,18 +146,15 @@ ollama:
             capabilities: [gpu]
 
 volumes:
-  ollama_data:
 ```
 
 **File:** `apps/api/requirements.txt` (add package)
 ```
-ollama==0.3.12  # Python Ollama client
 ```
 
 **File:** `apps/api/services/llm_fallback.py` (new)
 ```python
 """
-Fallback vision LLM extraction using Ollama (offline).
 Only triggered when RecipeParser leaves too many fields missing.
 """
 import json
@@ -190,7 +167,6 @@ logger = logging.getLogger(__name__)
 
 
 class OfflineLLMFallback:
-    """Extract recipe using LLaVA (offline, via Ollama)."""
     
     SCHEMA = {
         "title": "string or null",
@@ -225,22 +201,15 @@ Rules:
 - Keep ingredient original_text exactly as written
 """
     
-    def __init__(self, ollama_host: str = "http://localhost:11434", model: str = "llava:7b"):
         """
-        Initialize Ollama client.
         
         Args:
-            ollama_host: Ollama server URL
             model: Model name (default: llava:7b)
         """
         try:
-            from ollama import Client
         except ImportError:
-            raise ImportError("Install ollama-python: pip install ollama")
         
-        self.client = Client(host=ollama_host)
         self.model = model
-        self.host = ollama_host
     
     def extract_from_image(self, image_path: str) -> dict:
         """
@@ -262,7 +231,6 @@ Rules:
                 schema=json.dumps(self.SCHEMA, indent=2)
             )
             
-            # Call Ollama
             logger.info(f"Calling {self.model} for recipe extraction...")
             response = self.client.generate(
                 model=self.model,
@@ -296,24 +264,19 @@ Rules:
             return {}
     
     def is_available(self) -> bool:
-        """Check if Ollama server is running and model is loaded."""
         try:
             tags = self.client.list()
             model_names = [m.get("name", "") for m in tags.get("models", [])]
             return any(self.model in name for name in model_names)
         except Exception as e:
-            logger.warning(f"Ollama not available: {e}")
             return False
 
 
-def get_llm_fallback(ollama_host: str = "http://localhost:11434") -> Optional[OfflineLLMFallback]:
     """Factory: return fallback if available, else None."""
     try:
-        fallback = OfflineLLMFallback(ollama_host=ollama_host)
         if fallback.is_available():
             return fallback
         else:
-            logger.warning("Ollama/LLaVA not available; skipping LLM fallback")
             return None
     except Exception as e:
         logger.warning(f"Could not init LLM fallback: {e}")
@@ -352,7 +315,6 @@ def structure_recipe(ingest_id: UUID, asset_id: UUID):
         )
         
         fallback = get_llm_fallback(
-            ollama_host=os.getenv("OLLAMA_HOST", "http://localhost:11434")
         )
         
         if fallback:
@@ -368,7 +330,6 @@ def structure_recipe(ingest_id: UUID, asset_id: UUID):
             else:
                 logger.warning(f"LLM fallback returned empty for asset {asset_id}")
         else:
-            logger.info("Ollama/LLaVA not available; skipping fallback")
     
     # Save recipe + spans + statuses
     save_recipe(ingest_id, recipe_draft)
@@ -426,7 +387,6 @@ export function RecipeFieldWithBadge({
 
 ## Resource Requirements
 
-### Ollama + LLaVA-7B
 
 | Resource | Requirement | Notes |
 |----------|-------------|-------|
@@ -437,7 +397,6 @@ export function RecipeFieldWithBadge({
 | **Network (startup)** | 4.5 GB download | One-time on docker-compose up |
 
 ### Railway Deployment
-- ✅ Ollama + LLaVA-7B fits in Railway's **GPU plan** (e.g., RTX 4090, 24 GB VRAM)
 - ⚠️ Without GPU: ~10-15s per image (acceptable for background jobs)
 - 💾 Use Railway's **persistent volume** for model cache
 
@@ -447,7 +406,6 @@ export function RecipeFieldWithBadge({
 
 | Approach | Cost/Recipe | Privacy | Latency | Effort | Notes |
 |----------|------------|---------|---------|--------|-------|
-| **Ollama LLaVA-7B** | $0 | 100% | 2-8s | Medium | ✅ Recommended |
 | Claude 3 Haiku | $0.003 | 0% | 1-2s | Low | Cloud API, ~$0.50/month for 150 recipes |
 | GPT-4-Vision | $0.01 | 0% | 1-3s | Low | Cloud, ~$1.50/month for 150 recipes |
 | Tesseract only | $0 | 100% | 0.5s | Low | Limited to orientation; no extraction |
@@ -458,9 +416,6 @@ export function RecipeFieldWithBadge({
 
 ### Sprint Timeline
 
-**Sprint 1 (2-3 days):** Ollama Infrastructure
-- [ ] Add Ollama to docker-compose.yml
-- [ ] Test local: `docker-compose up ollama`
 - [ ] Verify `curl http://localhost:11434/api/tags` works
 - [ ] Document model download
 
@@ -481,7 +436,6 @@ export function RecipeFieldWithBadge({
 
 ## Success Criteria
 
-✅ Ollama service runs in docker-compose (GPU or CPU mode)  
 ✅ LLaVA-7B model pulls automatically on first startup  
 ✅ Structure job triggers fallback when >2 critical fields missing  
 ✅ LLM results merge cleanly with OCR results  
@@ -503,7 +457,6 @@ CLAUDE_API_KEY = os.getenv("CLAUDE_API_KEY", None)
 # In structure_recipe job:
 if not has_critical_fields:
     if OFFLINE_LLM_ENABLED:
-        fallback = get_llm_fallback(...)  # Try Ollama first
     
     if not fallback or not fallback.is_available():
         if CLAUDE_API_KEY:
@@ -516,10 +469,8 @@ This preserves the option for cloud-based fallback without requiring it.
 
 ## References
 
-- **Ollama:** https://github.com/ollama/ollama
 - **LLaVA:** https://github.com/haotian-liu/LLaVA (NeurIPS 2023, Apache 2.0)
 - **LLaVA Model Zoo:** https://huggingface.co/collections/lmms-lab/llava-next-6623288e2d61edba3ddbf5ff
 - **Moondream 2:** https://github.com/vikhyat/moondream (very fast, ~830 MB)
 - **llama.cpp:** https://github.com/ggml-org/llama.cpp (CPU inference)
 - **RecipeNow SPEC.md:** Privacy-first, self-hosted mandate
-

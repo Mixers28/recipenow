@@ -6,13 +6,11 @@
 <!-- SUMMARY_START -->
 **Summary (auto-maintained by Agent):**
 - RecipeNow converts uploaded recipe media into canonical recipes with per-field provenance and a review-first UI. V1 complete and production-deployed.
-- **Full Pipeline:** LLM vision primary (Ollama + LLaVA-7B) → OCR fallback (PaddleOCR + Tesseract rotation) → normalization → review UI → pantry matching.
-- **Stack (Finalized):** FastAPI 0.128.0 + Postgres 16 + Next.js 16.1.0 + ARQ 0.26.3 + PaddleOCR 3.3.2 + Tesseract PSM 0 + Ollama/LLaVA-7B.
-- **LLM Vision PRIMARY (Jan 28, 2026):** Ollama + LLaVA-7B runs first for all recipes. OCR parser serves as fallback. Better handles complex layouts.
-- **Deployment:** Railway (API + Worker + Ollama + Redis, live) + Vercel (frontend, live). Docker Compose for local dev.
+- **Full Pipeline:** Ingest + OCR (rotation detection) → OpenAI Vision extraction (primary) → normalization → review UI → pantry matching.
+- **Deployment:** Railway (backend + worker, live) + Vercel (frontend, live). Docker Compose for local dev.
 - **Auth:** Multi-user with JWT tokens and user-scoped data isolation.
-- **Provenance:** SourceSpan.source_method field tracks llm-vision vs ocr attribution per field.
-- **Status:** All 6 sprints complete, LLM vision pipeline deployed, async jobs operational (927cb3d, 1510e83, cde9cf9), ready for testing.
+- **Provenance:** SourceSpan.source_method field tracks OCR vs vision-api attribution per field.
+- **Status:** All 6 sprints complete, deployed to production, 3 hotfixes applied and merged (c31ab5b, 4217ff1, 653952d), system stable.
 <!-- SUMMARY_END -->
 
 ---
@@ -50,21 +48,15 @@
 - **Frontend:** Next.js 16.1.0 (App Router).
 - **Database:** Postgres 16.
 - **Job Queue:** ARQ 0.26.3 (Redis-backed async jobs).
-- **Extraction Pipeline:** LLM vision primary, OCR fallback:
-  - **PRIMARY: LLM Vision** - Ollama + LLaVA-7B (7B parameter multimodal model, 4.7 GB)
-    - Runs first for ALL recipes in async worker
-    - Deployed to Railway as separate Ollama service
-    - Internal networking: `http://Ollama.railway.internal:11434`
-    - Vision reading only (extract visible text), not inference
-    - Cloud fallback: Claude 3 Haiku + GPT-4V (optional, via API keys)
-  - **FALLBACK: OCR Parser** - Used when LLM vision fails
-    - **Stage 1 (Rotation):** Tesseract PSM 0 with 3-method voting (0°/90°/180°/270°)
-    - **Stage 2 (Extraction):** PaddleOCR 3.3.2 on corrected image
-    - **Parsing:** Deterministic heuristics for ingredient/step extraction
+- **OCR:** Two-stage pipeline:
+  - **Stage 1 (Rotation Detection):** Tesseract PSM 0 with 3-method voting (0°/90°/180°/270° correction) + ImageMagick fallback
+  - **Stage 2 (Text Extraction):** PaddleOCR 3.3.2 on corrected image
+  - **Vision Primary:** OpenAI Vision API uses OCR line IDs for bbox provenance
+  - **Role:** Vision reads visible text only (no inference/hallucination)
 - **Auth:** Multi-user with JWT tokens; user-scoped data isolation (user_id foreign key on all assets/recipes/pantry).
 - **Deployment:** Railway (backend API + worker, LIVE), Vercel (Next.js frontend, LIVE), Docker Compose (local development).
 - **Storage:** MinIO (configured in docker-compose; default for local dev).
-- **Parsing:** Deterministic heuristics + optional LLM vision fallback (Sprint 2-3 enhancement). No inference or guessing.
+- **Parsing:** Vision-primary extraction + deterministic parser fallback only on vision failure. No inference or guessing.
 - **Data integrity rules:**
   - All extracted fields must have provenance or be marked user-entered.
   - Do not invent quantities/units.
@@ -76,37 +68,25 @@
 
 ## 4. Architecture Snapshot
 
-- **Pipeline:** Ingest job -> Structure job -> Normalize job.
+- **Pipeline:** Ingest job -> Extract job -> Normalize job.
 - **Key data types:** MediaAsset, OCRLine/OCRToken, Recipe, SourceSpan, FieldStatus.
 - **Core screens:** Library, Recipe Review (split view), Pantry, Recipe Match, Cook Mode.
-- **API surface:** assets upload/ocr/structure, recipes CRUD + verify, provenance spans, pantry CRUD, match + shopping list.
+- **API surface:** assets upload/ocr/extract, recipes CRUD + verify, provenance spans, pantry CRUD, match + shopping list.
 
 ---
 
-## 5. Recent Enhancement: LLM Vision Primary Extraction (Jan 25-28, 2026)
+## 5. Recent Enhancement: OCR Pipeline v2 (Jan 25, 2026)
 
-**Problem:** PaddleOCR fails on rotated recipe cards and two-column layouts; deterministic parser insufficient for complex recipes.
+**Problem:** PaddleOCR fails on rotated recipe cards; vision extraction needs reliable OCR evidence.
 
-**Solution v1 (Jan 25):** Two-stage OCR pipeline with LLM vision fallback
-- Rotation detection (Tesseract PSM 0) + LLM vision when critical fields missing
-- 99% rotation accuracy on 152 recipe cards
+**Solution:** Two-stage OCR pipeline:
+1. **Rotation Detection:** Tesseract PSM 0 orientation detection + confidence voting across 3 thresholds
 
-**Solution v2 (Jan 28):** LLM vision as PRIMARY extraction method
-- **Pipeline Reversal:** LLM vision runs first, OCR serves as fallback
-- **Rationale:** Better handles complex layouts, two-column recipes, handwriting
-- **Deployment:** Ollama + LLaVA-7B deployed to Railway as separate service
-- **Worker Service:** Python 3.13 compatible, async job processing with ARQ
-- **Performance:** Faster responses (async), better extraction quality
+**Outcome:** 99% rotation accuracy (tested on 152 recipe cards). Graceful degradation when OCR sparse. Full provenance tracking via source_method field.
 
-**Code Changes:**
-- apps/api/services/llm_vision.py: LLMVisionService (Ollama + cloud fallback)
-- apps/api/worker/jobs.py: LLM vision primary, OCR fallback
-- apps/api/routers/assets.py: Fixed async job enqueuing (ingest_recipe)
-- apps/api/requirements-worker.txt: Minimal deps for worker (no PaddleOCR)
-- apps/api/db/session.py: Supabase pooler fix (prepare_threshold=None)
-- apps/web/app/review/[id]/page.tsx: Tabbed UI (Image/Recipe tabs)
+**Code Changes:** OCRService + LLMVisionService (OpenAI) + job pipeline enhancements + database migration + API response schema update.
 
-**Production Status:** Deployed (927cb3d, 1510e83, cde9cf9), all services operational, ready for testing.
+**Production Status:** Deployed (f4269ba), 3 hotfixes applied (c31ab5b, 4217ff1, 653952d), system stable.
 
 ---
 

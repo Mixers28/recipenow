@@ -10,11 +10,11 @@
 ## What Was Delivered
 
 ### Core Implementation
-A complete two-stage OCR pipeline per SPEC.md v2.1:
+A vision-primary pipeline per SPEC.md V1.1:
 1. **Rotation Detection** (Tesseract PSM 0 + voting)
 2. **OCR Extraction** (PaddleOCR on corrected images)
-3. **LLM Fallback** (Ollama + LLaVA-7B when OCR insufficient)
-4. **Job Pipeline** (Ingest → Structure → Normalize)
+3. **Vision Extraction (OpenAI)** (primary, OCR evidence IDs)
+4. **Job Pipeline** (Ingest → Extract → Normalize)
 5. **Provenance Tracking** (source_method field for audit trail)
 
 ### Code Quality
@@ -45,16 +45,14 @@ apps/api/services/ocr.py
 
 apps/api/services/llm_vision.py (NEW)
 ├─ LLMVisionService class (~400 lines)
-├─ Ollama + LLaVA-7B support (offline)
-├─ Claude 3 Haiku fallback (cloud)
-├─ GPT-4 Vision fallback (cloud)
+├─ OpenAI Vision API primary extraction
 └─ Factory function: get_llm_vision_service()
 
 apps/api/worker/jobs.py (ENHANCED)
 ├─ ingest_recipe() - Store asset + OCR
-├─ structure_recipe() - Parse + LLM fallback
+├─ extract_recipe() - Vision extraction (primary)
 ├─ normalize_recipe() - Deduplicate + validate
-└─ Helper functions (_check_missing_critical_fields, _merge_llm_fallback, etc.)
+└─ Helper functions (span building, vision normalization, etc.)
 
 apps/api/db/models.py
 └─ Modified: SourceSpan model
@@ -66,15 +64,13 @@ infra/migrations/002_add_source_method.sql (NEW)
 └─ CREATE INDEX idx_source_spans_recipe_method
 
 apps/api/requirements.txt
-├─ Added: httpx==0.27.0 (HTTP client for Ollama)
-├─ Added: anthropic==0.21.0 (Claude API)
-└─ Added: openai==1.30.0 (GPT-4 Vision)
+└─ Added: openai>=1.63.0 (OpenAI Vision API)
 ```
 
 ### Documentation Files
 ```
 docs/SPEC.md
-└─ Updated: Invariants, architecture, sprint tickets with new OCR/LLM details
+└─ Updated: Invariants, architecture, sprint tickets with new OCR/Vision details
 
 docs/NOW.md
 └─ Updated: Current focus, progress tracking
@@ -92,7 +88,7 @@ docs/IMPLEMENTATION_SUMMARY.md (NEW)
 └─ Review checklist
 
 docs/TESTING_GUIDE.md (NEW)
-├─ Unit tests for OCR/LLM
+├─ Unit tests for OCR/Vision
 ├─ Integration tests for pipeline
 ├─ Manual testing procedures
 ├─ Performance benchmarks
@@ -133,18 +129,12 @@ docs/QUICK_START.md (NEW)
         └──────────┬───────────┘
                    ↓
         ┌──────────────────────┐
-        │   Structure Job      │
+        │    Extract Job       │
         ├──────────────────────┤
         │ 1. Load OCRLines     │
-        │ 2. Parse             │  ← Deterministic parser
-        │ 3. Check critical    │  ← title, ingredients, steps
-        │    fields missing?   │
-        │      ├─ NO → Done    │
-        │      └─ YES ↓        │
-        │ 4. LLM Fallback      │  ← Ollama/Claude/OpenAI
-        │ 5. Merge results     │  ← Non-overwriting
-        │ 6. Save Recipe       │
-        │ 7. Save SourceSpans  │  ← With source_method
+        │ 2. Vision extract    │  ← OpenAI (primary)
+        │ 3. Build SourceSpans │  ← OCR evidence IDs
+        │ 4. Save Recipe       │
         └──────────┬───────────┘
                    ↓
         ┌──────────────────────┐
@@ -160,29 +150,27 @@ docs/QUICK_START.md (NEW)
     ┌──────────────────────────────┐
     │ Recipe Ready for Review      │
     │ (All fields tagged with      │
-    │  source: OCR, LLM, or User)  │
+    │  source: OCR, Vision, or User)  │
     └──────────────────────────────┘
 ```
 
 ### Critical Decisions
 
 1. **Vision Reader, Not Inference Engine**
-   - LLM reads visible text only
+   - Vision model reads visible text only
    - Does not infer missing values
    - Maintains "source-of-truth" invariant
 
-2. **Offline-First LLM**
-   - Ollama + LLaVA-7B as primary (self-hosted)
-   - Cloud APIs as optional fallback
-   - Reduces external dependencies
+2. **Hosted Vision Only**
+   - OpenAI Vision API is primary (no local/self-hosted LLMs)
+   - OCR provides evidence IDs for bbox provenance
 
-3. **Non-Overwriting Merge**
-   - LLM fills only missing critical fields
-   - OCR data has priority
-   - Preserves extraction confidence
+3. **Fallback Strategy**
+   - Deterministic parser used only if vision extraction fails
+   - OCR data preserved for provenance
 
 4. **Provenance Tracking**
-   - source_method: "ocr" or "llm-vision"
+   - source_method: "ocr" or "vision-api"
    - Pixel-level audit trail via SourceSpans
    - UI badges show data source
 
@@ -197,14 +185,8 @@ docs/QUICK_START.md (NEW)
 - PostgreSQL 13+ (already deployed)
 - Redis 5+ (already deployed)
 
-### Should Have (for offline LLM)
-- Ollama (https://ollama.ai)
-- LLaVA-7B model (4.5 GB)
-- 8+ GB RAM, GPU optional
-
-### Optional (cloud fallback)
-- Anthropic API key (Claude 3 Haiku)
-- OpenAI API key (GPT-4 Vision)
+### Required
+- OpenAI API key (vision extraction)
 
 ---
 
@@ -228,7 +210,7 @@ docs/QUICK_START.md (NEW)
 
 ### Post-Deployment (Ops Team)
 - Monitor OCR success rate (SQL in DEPLOYMENT_CHECKLIST.md)
-- Check LLM fallback usage frequency
+- Check vision extraction usage frequency
 - Verify rotation detection performance
 - Weekly health checks
 
@@ -240,9 +222,8 @@ docs/QUICK_START.md (NEW)
 |-----------|-----------|
 | Tesseract required | Install: `apt-get install tesseract-ocr` |
 | ImageMagick required | Install: `apt-get install imagemagick` |
-| LLaVA-7B is 4.5 GB | Use cloud fallback if space limited |
-| Network latency (Ollama) | Acceptable for fallback scenario |
-| JSON parsing brittleness | Rare; regex fallback included |
+| OpenAI API key required | Set OPENAI_API_KEY in env |
+| JSON parsing brittleness | Rare; strict JSON + retry |
 
 ---
 
@@ -257,7 +238,7 @@ docs/QUICK_START.md (NEW)
 ### What Needs QA Testing
 - ⏳ Real recipe card images (various qualities)
 - ⏳ Rotation detection accuracy (4 angles)
-- ⏳ LLM fallback triggering (sparse OCR)
+- ⏳ Vision extraction on sparse OCR
 - ⏳ Performance benchmarks
 - ⏳ UI badge display (next sprint)
 
@@ -273,7 +254,7 @@ docs/QUICK_START.md (NEW)
 - [ ] All unit tests pass
 - [ ] Integration pipeline works end-to-end
 - [ ] Rotation detection accurate on 4 angles
-- [ ] LLM fallback fills missing fields correctly
+- [ ] Vision extraction populates title/ingredients/steps with evidence
 - [ ] Database migration applies without errors
 - [ ] Performance < 50 sec per recipe
 - [ ] Source spans created with correct source_method
@@ -288,11 +269,8 @@ docs/QUICK_START.md (NEW)
 **Q: What if Tesseract/ImageMagick not installed?**  
 A: Rotation detection fails gracefully; proceeds with original image. Still works but may fail on rotated cards.
 
-**Q: What if Ollama not running?**  
-A: Falls back to cloud provider (if configured). If no cloud key, structure job completes with OCR results only.
-
-**Q: Can I disable LLM fallback?**  
-A: Yes: `export LLM_FALLBACK_ENABLED=false`
+**Q: What if the OpenAI API key is missing?**  
+A: Vision extraction will fail; fix by setting `OPENAI_API_KEY` before running extract jobs.
 
 **Q: Can I disable rotation detection?**  
 A: Yes: `export ENABLE_ROTATION_DETECTION=false`
@@ -300,7 +278,7 @@ A: Yes: `export ENABLE_ROTATION_DETECTION=false`
 **Q: Will this break existing recipes?**  
 A: No. All changes backward compatible. Existing recipes unaffected. New source_method field defaults to "ocr".
 
-**Q: How do I monitor LLM usage?**  
+**Q: How do I monitor vision usage?**  
 A: Query: `SELECT source_method, COUNT(*) FROM source_spans GROUP BY source_method`
 
 **Q: What's the next sprint?**  
@@ -318,7 +296,7 @@ A: Sprint 4: Quality checks. Sprint 5: UI badges. Sprint 6: Pantry & matching.
 ### Frontend Team
 4. **After This Sprint:** Implement source badges in RecipeForm
    - OCR = blue badge
-   - LLM Vision = purple badge
+   - Vision API = purple badge
    - User Entered = green badge
    - Missing = red badge
 
@@ -366,14 +344,13 @@ Before merging to main:
 ## Commit Message Template
 
 ```
-feat: Implement two-stage OCR pipeline with rotation detection + LLM fallback
+feat: Implement vision-primary extraction with OCR provenance
 
-SPEC.md v2.1 implementation:
+SPEC.md V1.1 implementation:
 - Add Tesseract rotation detection (PSM 0 + 3-method voting)
 - Integrate ImageMagick rotation correction
-- Implement Ollama + LLaVA-7B LLM vision fallback
 - Add source_method field to SourceSpan for provenance tracking
-- Complete job pipeline (ingest → structure → normalize)
+- Complete job pipeline (ingest → extract → normalize)
 
 Files modified:
 - apps/api/services/ocr.py (rotation detection)
@@ -386,7 +363,7 @@ Breaking changes: None (fully backward compatible)
 Tests: All unit/integration tests passing
 Docs: TESTING_GUIDE.md, DEPLOYMENT_CHECKLIST.md, QUICK_START.md
 
-Closes: #OCR-1, #LLM-Vision-1
+Closes: #OCR-1, #Vision-Primary-1
 ```
 
 ---
@@ -395,11 +372,10 @@ Closes: #OCR-1, #LLM-Vision-1
 
 This implementation represents **6 weeks of research + planning + development** condensed into clean, well-documented code. Every decision is tracked in SPEC.md and justified in design docs. The pipeline is production-ready pending QA testing.
 
-**Key Achievement:** Solved PaddleOCR's rotation limitation while maintaining the "source-of-truth" invariant through careful LLM vision reader design.
+**Key Achievement:** Solved PaddleOCR's rotation limitation while maintaining the "source-of-truth" invariant through vision-primary extraction with OCR evidence.
 
-**Risk Level:** Low (fully backward compatible, feature-flagged fallbacks)
+**Risk Level:** Low (fully backward compatible; deterministic parser fallback only)
 
-**Confidence Level:** High (based on Carl Pearson's proven method + Ollama/LLaVA success in other projects)
 
 ---
 
@@ -417,6 +393,6 @@ This implementation represents **6 weeks of research + planning + development** 
 ---
 
 **Handoff Date:** Sprint 2-3 Completion  
-**SPEC.md Version:** 2.1  
+**SPEC.md Version:** V1.1  
 **Next Meeting:** QA standup (discuss test results & deployment timeline)  
 **Contact:** See individual files for detailed questions

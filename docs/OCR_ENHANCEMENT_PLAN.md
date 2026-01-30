@@ -8,12 +8,14 @@
 
 ## Executive Summary
 
-Carl Pearson's blog post demonstrates a **multi-stage pipeline** (scan → split → rotate detect → LLM-vision) that achieves high-quality recipe extraction. While RecipeNow's **deterministic parser + interactive review** is superior for privacy and user control, we can adopt **two key techniques** to dramatically improve OCR reliability:
+Carl Pearson's blog post demonstrates a **multi-stage pipeline** (scan → split → rotate detect → vision extraction) that achieves high-quality recipe extraction. RecipeNow now uses the **OpenAI Vision API as the primary extractor** with OCR supplying bbox evidence. This plan focuses on **OCR reliability improvements** that strengthen provenance.
 
 1. **Orientation Detection w/ Confidence Voting** (Tesseract-based)
-2. **Optional Vision LLM Fallback** (for ambiguous/complex layouts)
+2. **Vision API Extraction (primary, OpenAI)** with OCR evidence
 
-This doc outlines implementation phases balancing **self-hosted offline capability** with **accuracy improvements**.
+This doc focuses on OCR accuracy improvements in a hosted-vision architecture.
+
+**Note:** Any legacy "offline LLM" or "cloud fallback" sections below are deprecated and kept for historical context only.
 
 ---
 
@@ -21,7 +23,7 @@ This doc outlines implementation phases balancing **self-hosted offline capabili
 
 ### RecipeNow Strengths
 - ✅ Interactive review workflow (users control final truth)
-- ✅ 100% self-hosted, offline, privacy-first
+- ✅ Privacy-first with hosted vision extraction (OpenAI Vision API)
 - ✅ Provenance tracking per field (source pixels → spans)
 - ✅ Stateful field editing (missing, ambiguous, verified)
 
@@ -374,4 +376,3 @@ def structure_recipe(ingest_id: UUID, asset_id: UUID):
 - **PaddleOCR:** https://github.com/PaddlePaddle/PaddleOCR
 - **Claude Vision API:** https://docs.anthropic.com/en/docs/vision/vision-models
 - **RecipeNow SPEC.md:** `docs/SPEC.md`
-

@@ -1,7 +1,7 @@
 # Railway Migration 002 Application Guide
 
 **Migration:** Add `source_method` column to `source_spans` table
-**Purpose:** Track whether fields were extracted via OCR or LLM vision
+**Purpose:** Track whether fields were extracted via OCR or OpenAI vision
 **Status:** Ready to apply (idempotent - safe to run multiple times)
 **Risk Level:** 🟢 Low (backward compatible, non-breaking)
 
@@ -193,7 +193,7 @@ ON source_spans(recipe_id, source_method);
 
 -- Add comment for documentation
 COMMENT ON COLUMN source_spans.source_method IS
-'Method used to extract this span: "ocr" for OCR extraction, "llm-vision" for LLM vision reader fallback';
+'Method used to extract this span: "ocr" for OCR extraction, "vision-api" for OpenAI vision extraction';
 ```
 
 Click "Run" and verify:
@@ -442,7 +442,7 @@ psql "$DATABASE_URL" -c "
 1. ✅ Mark migration 002 as complete in [NOW.md](NOW.md)
 2. ⏭️ Execute QA testing per [TESTING_GUIDE.md](TESTING_GUIDE.md)
 3. ⏭️ Implement Sprint 5 UI badges (color-coded source attribution)
-4. ⏭️ Test LLM vision fallback creates `source_method='llm-vision'` spans
+4. ⏭️ Test vision extraction creates `source_method='vision-api'` spans
 
 ---
 

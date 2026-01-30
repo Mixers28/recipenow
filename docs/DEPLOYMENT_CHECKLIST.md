@@ -1,4 +1,4 @@
-# Deployment Checklist - OCR Enhancement + LLM Vision Fallback
+# Deployment Checklist - Vision-Primary Extraction
 
 ## Pre-Deployment Verification
 
@@ -18,9 +18,7 @@
 ### Dependencies
 - [ ] `paddleocr` - OCR engine (already in requirements)
 - [ ] `paddlepaddle` - PaddleOCR dependency (already in requirements)
-- [ ] `httpx==0.27.0` - HTTP client for Ollama
-- [ ] `anthropic==0.21.0` - Claude API (optional)
-- [ ] `openai==1.30.0` - OpenAI API (optional)
+- [ ] `openai>=1.63.0` - OpenAI API (required for vision extraction)
 
 ### System Tools
 - [ ] Tesseract OCR installed (`tesseract --version`)
@@ -72,14 +70,11 @@ WHERE table_name='source_spans' AND column_name='source_method';
 # OCR Service (optional - defaults shown)
 ENABLE_ROTATION_DETECTION=true
 
-# LLM Vision Service (optional)
-OLLAMA_HOST=http://localhost:11434
-OLLAMA_MODEL=llava:7b
-LLM_FALLBACK_ENABLED=true
-LLM_FALLBACK_PROVIDER=  # Leave empty unless using cloud fallback
-
-# Cloud Fallback (if LLM_FALLBACK_PROVIDER set to "claude" or "openai")
-LLM_FALLBACK_API_KEY=  # Set only if using cloud provider
+# Vision API (OpenAI)
+OPENAI_API_KEY=...
+VISION_MODEL=gpt-4o-mini
+VISION_MAX_OUTPUT_TOKENS=1024
+VISION_STRICT_JSON=true
 ```
 
 #### Docker Compose Updates (if using containers)
@@ -91,38 +86,12 @@ services:
     image: recipenow-api:latest
     environment:
       - ENABLE_ROTATION_DETECTION=true
-      - OLLAMA_HOST=http://ollama:11434  # If using container
-      - LLM_FALLBACK_ENABLED=true
+      - OPENAI_API_KEY=...
+      - VISION_MODEL=gpt-4o-mini
     depends_on:
       - postgres
       - redis
-      - ollama  # If using Ollama service
     # Tesseract and ImageMagick already in Dockerfile
-
-  # Optional: Ollama service for LLM fallback
-  ollama:
-    image: ollama/ollama:latest
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama-data:/root/.ollama
-    command: ollama serve
-
-volumes:
-  ollama-data:
-```
-
-### 4. Ollama Setup (if using offline LLM)
-```bash
-# Pull LLaVA model (one time)
-docker exec recipenow-ollama ollama pull llava:7b
-
-# Or if running Ollama locally:
-ollama pull llava:7b
-
-# Verify it's available
-curl http://localhost:11434/api/tags
-# Should see: llava:7b in response
 ```
 
 ### 5. System Tool Installation
@@ -163,16 +132,16 @@ service = get_ocr_service()
 print('✓ OCRService loaded')
 "
 
-# Test LLM service loads
+# Test Vision service loads
 python -c "
 from apps.api.services.llm_vision import get_llm_vision_service
 service = get_llm_vision_service()
-print('✓ LLMVisionService loaded')
+print('✓ Vision service loaded')
 "
 
 # Test jobs module loads
 python -c "
-from apps.api.worker.jobs import ingest_recipe, structure_recipe
+from apps.api.worker.jobs import ingest_recipe, extract_recipe
 print('✓ Jobs module loaded')
 "
 
@@ -212,7 +181,7 @@ curl -X POST \
 ### Monitoring
 - [ ] API server starts without errors
 - [ ] Logs show OCR service initialized
-- [ ] Logs show LLM service initialized
+- [ ] Logs show Vision service initialized
 - [ ] No rotation detection timeouts (should be < 5 sec)
 - [ ] No OCR failures (unless image truly unreadable)
 
@@ -221,7 +190,7 @@ curl -X POST \
 - [ ] source_spans.source_method is populated correctly
   ```sql
   SELECT DISTINCT source_method FROM source_spans LIMIT 5;
-  -- Should see "ocr" for recent recipes
+  -- Should see "ocr" or "vision-api" for recent recipes
   ```
 - [ ] Recipe titles, ingredients, steps populated
   ```sql
@@ -237,8 +206,8 @@ grep -i "error\|failed" logs/api.log
 # Check OCR performance
 grep "OCR extracted" logs/api.log | head -5
 
-# Check LLM usage (if enabled)
-grep -i "llm fallback" logs/api.log
+# Check vision extraction usage
+grep -i "vision" logs/api.log | head -5
 ```
 
 ## Rollback Plan
@@ -256,9 +225,6 @@ git push origin main
 ```bash
 # Disable rotation detection
 export ENABLE_ROTATION_DETECTION=false
-
-# Disable LLM fallback
-export LLM_FALLBACK_ENABLED=false
 
 # Restart API
 ```
@@ -279,8 +245,7 @@ DROP INDEX IF EXISTS idx_source_spans_recipe_method;
 |-------|----------|-----------|
 | Tesseract not found | Rotation detection fails | Ensure `tesseract` CLI installed |
 | ImageMagick not found | Rotation not applied | Ensure `convert` CLI available |
-| Ollama connection failed | LLM fallback fails | Verify OLLAMA_HOST correct, Ollama service running |
-| LLM returns unparseable JSON | LLM extraction fails | Enable cloud fallback with API key |
+| Vision returns unparseable JSON | Vision extraction fails | Ensure strict JSON + retry; verify OpenAI config |
 | OCR memory exhaustion | API crashes on large images | Reduce image size, use GPU |
 | PaddleOCR initialization slow | First request delayed | Pre-load OCR on startup |
 
@@ -293,7 +258,6 @@ Before marking deployment as complete:
 - [ ] All dependencies installed
 - [ ] System tools available (Tesseract, ImageMagick)
 - [ ] Environment variables configured
-- [ ] Ollama running (if using offline LLM)
 - [ ] Smoke tests all pass
 - [ ] Sample recipe upload succeeds
 - [ ] OCR extracts text (upright image)
@@ -326,7 +290,7 @@ FROM ocr_metrics
 WHERE date >= NOW() - INTERVAL '7 days';
 ```
 
-### LLM Fallback Usage
+### Vision Usage
 ```bash
 SELECT 
   source_method,
@@ -335,11 +299,11 @@ FROM source_spans
 WHERE created_at >= NOW() - INTERVAL '7 days'
 GROUP BY source_method;
 
--- Expected: mostly "ocr", some "llm-vision" when OCR sparse
+-- Expected: mix of "ocr" and "vision-api"
 ```
 
 ---
 
 **Last Updated:** Sprint 2-3 Completion  
 **Deployment Target:** Production  
-**SPEC.md Version:** 2.1 (with OCR enhancement + LLM fallback)
+**SPEC.md Version:** V1.1 (vision-primary)

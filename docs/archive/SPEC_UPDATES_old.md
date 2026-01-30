@@ -34,10 +34,8 @@ source_method: enum("ocr", "llm-vision")  # How this field was extracted
 #### 4. Structure Job (Sprint 3)
 **New:** LLM Vision fallback when OCR insufficient
 - **Trigger:** After deterministic parsing, if title OR ingredients OR steps are missing.
-- **Action:** Invoke Ollama + LLaVA-7B (offline) to read the same image.
 - **Merge:** LLM extractions tagged as `source_method: "llm-vision"` in SourceSpans.
 - **Fallback hierarchy:**
-  1. Ollama + LLaVA-7B (default, offline, 4.5 GB model).
   2. Cloud API (Claude Haiku or GPT-4-Vision) if `LLM_FALLBACK_ENABLED=true`.
   3. Missing field (if both fail).
 
@@ -65,7 +63,6 @@ Updated to show:
 - ✅ **User control:** Review UI shows source; users can edit/clear any field.
 
 ### Privacy-First, Offline Default
-- ✅ **Offline by default:** Ollama + LLaVA-7B runs locally (~8 GB RAM, 4.5 GB disk).
 - ✅ **Optional cloud:** Cloud APIs (Claude, OpenAI) available only if `LLM_FALLBACK_ENABLED=true`.
 - ✅ **Configurable:** `LLM_FALLBACK_PROVIDER` and `LLM_FALLBACK_ENABLED` env vars control behavior.
 
@@ -109,12 +106,8 @@ TESSERACT_CONFIDENCE_THRESHOLD=3 # Confidence cutoff for rotation vote
 
 # LLM Vision Fallback
 LLM_FALLBACK_ENABLED=true                        # Enable LLM fallback (default: true)
-LLM_FALLBACK_PROVIDER=ollama                     # Provider: ollama|claude|openai (default: ollama)
-OLLAMA_HOST=http://localhost:11434               # Ollama server URL (offline)
-OLLAMA_MODEL=llava:7b                            # Model (4.5 GB, downloads on first use)
 LLM_FALLBACK_TRIGGER_THRESHOLD=3                 # Trigger if >N fields missing (default: 3)
 
-# Cloud API (optional, if LLM_FALLBACK_PROVIDER != ollama)
 ANTHROPIC_API_KEY=sk-...                         # Claude API key
 OPENAI_API_KEY=sk-...                            # OpenAI API key
 ```
@@ -125,7 +118,6 @@ OPENAI_API_KEY=sk-...                            # OpenAI API key
 |-----------|----------|----------|
 | Tesseract OCR | ✅ Yes (orientation) | — |
 | ImageMagick | ✅ Yes (rotation) | — |
-| Ollama + LLaVA | ⭕ Recommended | Cloud fallback |
 | PaddleOCR | ✅ Yes (text extraction) | — |
 | PostgreSQL | ✅ Yes | — |
 | Redis | ✅ Yes (job queue) | — |
@@ -148,7 +140,6 @@ OPENAI_API_KEY=sk-...                            # OpenAI API key
 - ✅ **Rotation handling:** Rotated images auto-corrected before OCR; logs show correction.
 - ✅ **LLM trigger:** LLM fallback invoked only when OCR insufficient; not default path.
 - ✅ **Source tracking:** Every field shows source badge (OCR, LLM Vision, User Entered, or Missing).
-- ✅ **Privacy:** Ollama offline by default; cloud APIs optional and logged.
 - ✅ **Verification gating:** Can only mark verified if title + ≥1 ingredient + ≥1 step present.
 
 ---
@@ -157,7 +148,6 @@ OPENAI_API_KEY=sk-...                            # OpenAI API key
 
 - **Carl Pearson's digitization method:** https://carlpearson.net/post/20240102-digitize-recipe/ (rotation detection inspiration)
 - **Tesseract orientation detection:** https://github.com/tesseract-ocr/tesseract/wiki/ImproveQuality
-- **Ollama:** https://github.com/ollama/ollama
 - **LLaVA:** https://github.com/haotian-liu/LLaVA (NeurIPS 2023, Apache 2.0)
 - **RecipeNow SPEC.md:** The canonical source (updated)
 

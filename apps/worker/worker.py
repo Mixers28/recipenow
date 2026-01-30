@@ -5,7 +5,7 @@ import os
 
 from arq.connections import RedisSettings
 
-from jobs import ingest_job, normalize_job, structure_job
+from jobs import ingest_job, normalize_job, structure_job, extract_job
 
 
 class WorkerSettings:
@@ -21,6 +21,7 @@ class WorkerSettings:
     # Worker function imports
     functions = [
         ingest_job,
+        extract_job,
         structure_job,
         normalize_job,
     ]

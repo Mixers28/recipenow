@@ -1,17 +1,144 @@
 """
 Background jobs and async task processing for RecipeNow.
 
-Implements the three-stage recipe ingestion pipeline per SPEC.md:
-1. Ingest Job: Store uploaded asset, run OCR with rotation detection
-2. Structure Job: Parse OCR results, use LLM fallback if critical fields missing
+Implements the vision-primary ingestion pipeline per SPEC.md:
+1. Ingest Job: Run OCR with rotation detection (provenance only)
+2. Extract Job: Vision API extraction with OCR evidence IDs
 3. Normalize Job: Standardize extracted data (dedupe ingredients, fix times, etc.)
 """
 import json
 import logging
 import re
 from typing import Optional, Dict, List, Any
+from uuid import UUID
 
 logger = logging.getLogger(__name__)
+
+
+def _union_bboxes(bboxes: List[List[float]]) -> List[float]:
+    if not bboxes:
+        return [0, 0, 0, 0]
+    x_min = min(b[0] for b in bboxes)
+    y_min = min(b[1] for b in bboxes)
+    x_max = max(b[0] + b[2] for b in bboxes)
+    y_max = max(b[1] + b[3] for b in bboxes)
+    return [x_min, y_min, x_max - x_min, y_max - y_min]
+
+
+def _build_span_from_evidence(
+    field_path: str,
+    extracted_text: str,
+    evidence_ids: List[str],
+    ocr_line_map: Dict[str, Any],
+    asset_id: str,
+    source_method: str = "vision-api",
+) -> Optional[Dict[str, Any]]:
+    evidence_ids = [str(eid) for eid in evidence_ids or []]
+    lines = [ocr_line_map[eid] for eid in evidence_ids if eid in ocr_line_map]
+    if not lines:
+        return None
+    bboxes = [line.bbox for line in lines]
+    bbox = _union_bboxes(bboxes)
+    page = lines[0].page
+    confidence = sum(line.confidence for line in lines) / len(lines)
+    return {
+        "field_path": field_path,
+        "asset_id": asset_id,
+        "page": page,
+        "bbox": bbox,
+        "extracted_text": extracted_text,
+        "confidence": confidence,
+        "source_method": source_method,
+        "evidence": {"ocr_line_ids": evidence_ids},
+    }
+
+
+def _vision_to_recipe_payload(vision_result: Dict[str, Any]) -> Dict[str, Any]:
+    recipe = {
+        "title": None,
+        "servings": None,
+        "servings_estimate": None,
+        "times": {"prep_min": None, "cook_min": None, "total_min": None},
+        "ingredients": [],
+        "steps": [],
+        "tags": [],
+    }
+
+    title = vision_result.get("title")
+    if isinstance(title, dict):
+        recipe["title"] = title.get("text") or None
+
+    servings = vision_result.get("servings") or {}
+    if isinstance(servings, dict):
+        if servings.get("is_estimate"):
+            recipe["servings_estimate"] = {
+                "value": servings.get("value"),
+                "confidence": servings.get("confidence"),
+                "basis": None,
+                "approved_by_user": False,
+            }
+        else:
+            recipe["servings"] = servings.get("value")
+
+    servings_estimate = vision_result.get("servings_estimate")
+    if isinstance(servings_estimate, dict):
+        recipe["servings_estimate"] = {
+            "value": servings_estimate.get("value"),
+            "confidence": servings_estimate.get("confidence"),
+            "basis": servings_estimate.get("basis"),
+            "approved_by_user": False,
+        }
+
+    times = vision_result.get("times") or {}
+    if isinstance(times, dict):
+        for key in ["prep_min", "cook_min", "total_min"]:
+            entry = times.get(key)
+            if isinstance(entry, dict):
+                recipe["times"][key] = entry.get("value")
+
+    ingredients = vision_result.get("ingredients") or []
+    for item in ingredients:
+        if isinstance(item, dict) and item.get("text"):
+            recipe["ingredients"].append(
+                {
+                    "original_text": item.get("text"),
+                    "name_norm": None,
+                    "quantity": None,
+                    "unit": None,
+                    "optional": False,
+                }
+            )
+
+    steps = vision_result.get("steps") or []
+    for item in steps:
+        if isinstance(item, dict) and item.get("text"):
+            recipe["steps"].append({"text": item.get("text")})
+
+    return recipe
+
+
+def _build_field_statuses(recipe_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    statuses = []
+
+    def mark(field_path: str, present: bool, note_missing: str):
+        statuses.append(
+            {
+                "field_path": field_path,
+                "status": "extracted" if present else "missing",
+                "notes": None if present else note_missing,
+            }
+        )
+
+    mark("title", bool(recipe_data.get("title")), "Could not detect title")
+    mark(
+        "ingredients",
+        bool(recipe_data.get("ingredients")),
+        "Could not detect ingredients",
+    )
+    mark("steps", bool(recipe_data.get("steps")), "Could not detect steps")
+    mark("servings", bool(recipe_data.get("servings")), "Servings not found")
+
+    return statuses
 
 
 def _extract_ingredient_name(original_text: str) -> Optional[str]:
@@ -54,154 +181,101 @@ def _extract_ingredient_name(original_text: str) -> Optional[str]:
 
 
 async def ingest_recipe(
-    ctx: dict,
     asset_id: str,
     user_id: str,
-    recipe_id: str,
+    file_data: bytes,
+    asset_type: str = "image",
+    recipe_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Ingest Job: Extract recipe data using LLM vision (PRIMARY) with OCR parser fallback.
-
+    Ingest Job (Sprint 2): Extract text from uploaded media with OCR.
+    
     Steps:
-    1. Fetch asset file from storage
-    2. Run LLM vision extraction (PRIMARY METHOD)
-    3. If LLM fails, fall back to OCR parser
-    4. Create Recipe with extracted data and SourceSpans
-
+    1. Store uploaded asset file
+    2. Detect and correct image orientation (if image)
+    3. Run OCR (PaddleOCR)
+    4. Create Asset and OCRLines in database
+    5. Queue Structure Job
+    
     Args:
         asset_id: UUID of asset
         user_id: UUID of user
-        recipe_id: UUID of recipe to populate
-
+        file_data: Raw file bytes
+        asset_type: "image" or "pdf"
+    
     Returns:
-        Job result dict with status and extraction method used
+        Job result dict with status and OCR line count
     """
     from apps.api.db.session import SessionLocal
-    from apps.api.db.models import MediaAsset, Recipe, SourceSpan
-    from apps.api.services.llm_vision import get_llm_vision_service
-    from apps.api.services.parser import RecipeParser
-    from apps.api.services.storage import get_storage_backend
-    from sqlalchemy import select
-
-    logger.info(f"Ingest Job: Starting for asset {asset_id}, user {user_id}, recipe {recipe_id}")
-
+    from apps.api.services.ocr import get_ocr_service
+    from apps.api.db.models import MediaAsset, OCRLine
+    from sqlalchemy import insert
+    
+    logger.info(f"Ingest Job: Starting for asset {asset_id}, user {user_id}")
+    
     try:
+        user_uuid = UUID(user_id) if isinstance(user_id, str) else user_id
+        # Get OCR service
+        ocr_service = get_ocr_service(use_gpu=False, lang="en")
+        
+        # Extract text with rotation detection
+        ocr_lines_data = ocr_service.extract_text(
+            file_data=file_data,
+            asset_type=asset_type,
+        )
+        
+        logger.info(f"OCR extracted {len(ocr_lines_data)} lines for asset {asset_id}")
+        
+        # Store in database
         db = SessionLocal()
         try:
-            # Fetch asset from database
-            asset = db.query(MediaAsset).filter(MediaAsset.id == asset_id).first()
+            asset_uuid = UUID(asset_id) if isinstance(asset_id, str) else asset_id
+            asset = db.query(MediaAsset).filter(MediaAsset.id == asset_uuid).first()
             if not asset:
-                return {
-                    "status": "failed",
-                    "asset_id": asset_id,
-                    "error": "Asset not found in database",
-                }
-
-            # Fetch file data from storage
-            storage = get_storage_backend()
-            file_data = storage.get(asset.storage_path)
-
-            # PRIMARY: Use LLM Vision for extraction
-            llm_extraction_success = False
-            recipe_data = {}
-            source_method = "llm-vision"
-
-            try:
-                logger.info(f"Running LLM vision extraction for asset {asset_id}")
-                llm_service = get_llm_vision_service()
-                llm_result = llm_service.extract_recipe_from_image(file_data)
-                logger.info(f"LLM vision extracted: {list(llm_result.keys())}")
-
-                recipe_data = {
-                    "title": llm_result.get("title"),
-                    "servings": llm_result.get("servings"),
-                    "ingredients": llm_result.get("ingredients", []),
-                    "steps": llm_result.get("steps", []),
-                    "tags": llm_result.get("tags", []),
-                    "prep_time_minutes": llm_result.get("prep_time_minutes"),
-                    "cook_time_minutes": llm_result.get("cook_time_minutes"),
-                }
-
-                # Check if extraction was successful
-                has_title = bool(recipe_data.get("title"))
-                has_ingredients = bool(recipe_data.get("ingredients"))
-                has_steps = bool(recipe_data.get("steps"))
-
-                if has_title and has_ingredients and has_steps:
-                    llm_extraction_success = True
-                    logger.info(f"LLM vision extraction successful: title={has_title}, ingredients={len(recipe_data['ingredients'])}, steps={len(recipe_data['steps'])}")
-                else:
-                    logger.warning(f"LLM vision extraction incomplete: title={has_title}, ingredients={has_ingredients}, steps={has_steps}")
-
-            except Exception as e:
-                logger.warning(f"LLM vision extraction failed, falling back to OCR parser: {e}")
-
-            # FALLBACK: Use OCR parser if LLM vision failed
-            if not llm_extraction_success:
-                logger.info("Using OCR parser as fallback")
-                source_method = "ocr"
-                # Note: OCR parser requires PaddleOCR which is not installed in worker
-                # This will fail unless PaddleOCR is added to requirements-worker.txt
-                return {
-                    "status": "failed",
-                    "asset_id": asset_id,
-                    "error": "LLM vision extraction failed and OCR fallback not available in worker",
-                }
-
-            # Update recipe with extracted data
-            recipe = db.query(Recipe).filter(Recipe.id == recipe_id).first()
-            if not recipe:
-                return {
-                    "status": "failed",
-                    "asset_id": asset_id,
-                    "error": f"Recipe {recipe_id} not found",
-                }
-
-            recipe.title = recipe_data.get("title")
-            recipe.servings = recipe_data.get("servings")
-            recipe.ingredients = recipe_data.get("ingredients", [])
-            recipe.steps = recipe_data.get("steps", [])
-            recipe.tags = recipe_data.get("tags", [])
-            recipe.prep_time_minutes = recipe_data.get("prep_time_minutes")
-            recipe.cook_time_minutes = recipe_data.get("cook_time_minutes")
-            recipe.status = "draft"
-
-            # Create source spans with source_method attribution
-            for idx, ingredient in enumerate(recipe_data.get("ingredients", [])):
-                source_span = SourceSpan(
-                    recipe_id=recipe.id,
-                    field_path=f"ingredients[{idx}]",
-                    source_asset_id=asset_id,
-                    extracted_text=ingredient,
-                    source_method=source_method,
+                asset = MediaAsset(
+                    id=asset_uuid,
+                    user_id=user_uuid,
+                    type=asset_type,
+                    sha256="",
+                    storage_path="",
                 )
-                db.add(source_span)
-
-            for idx, step in enumerate(recipe_data.get("steps", [])):
-                source_span = SourceSpan(
-                    recipe_id=recipe.id,
-                    field_path=f"steps[{idx}]",
-                    source_asset_id=asset_id,
-                    extracted_text=step,
-                    source_method=source_method,
-                )
-                db.add(source_span)
-
+                db.add(asset)
+                db.flush()
+            
+            # Bulk insert OCR lines
+            if ocr_lines_data:
+                ocr_lines = [
+                    {
+                        "asset_id": asset_uuid,
+                        "page": line.page,
+                        "text": line.text,
+                        "bbox": line.bbox,  # [x, y, w, h]
+                        "confidence": line.confidence,
+                    }
+                    for line in ocr_lines_data
+                ]
+                db.execute(insert(OCRLine), ocr_lines)
+            
             db.commit()
-            logger.info(f"Recipe {recipe_id} populated with LLM vision extraction")
+            logger.info(f"Asset {asset_id} stored with {len(ocr_lines_data)} OCR lines")
 
+            if recipe_id:
+                await extract_recipe(
+                    asset_id=asset_id,
+                    user_id=user_id,
+                    recipe_id=recipe_id,
+                    image_bytes=file_data,
+                )
+            
             return {
                 "status": "success",
                 "asset_id": asset_id,
-                "recipe_id": recipe_id,
-                "source_method": source_method,
-                "ingredient_count": len(recipe_data.get("ingredients", [])),
-                "step_count": len(recipe_data.get("steps", [])),
+                "ocr_line_count": len(ocr_lines_data),
+                "message": f"Ingested {len(ocr_lines_data)} OCR lines",
             }
-
         finally:
             db.close()
-
+    
     except Exception as e:
         logger.error(f"Ingest Job failed for asset {asset_id}: {e}", exc_info=True)
         return {
@@ -211,60 +285,127 @@ async def ingest_recipe(
         }
 
 
-async def structure_recipe(
-    ctx: dict,
+async def extract_recipe(
     asset_id: str,
     user_id: str,
     recipe_id: Optional[str] = None,
+    image_bytes: Optional[bytes] = None,
 ) -> Dict[str, Any]:
     """
-    Structure Job (Sprint 3): Parse OCR into structured recipe.
-    
-    Steps:
-    1. Fetch OCR lines from asset
-    2. Run deterministic parser
-    3. If critical fields missing, invoke LLM vision fallback
-    4. Create Recipe and SourceSpans in database
-    5. Queue Normalize Job
-    
-    Critical fields: title, ingredients, steps
-    
-    Args:
-        asset_id: UUID of asset
-        user_id: UUID of user
-        recipe_id: Optional; if not provided, new recipe created
-    
-    Returns:
-        Job result dict with recipe_id and field statuses
+    Extract Job (Vision-Primary): Use vision API with OCR evidence to build recipe draft.
     """
     from apps.api.db.session import SessionLocal
-    from apps.api.db.models import OCRLine, Recipe, SourceSpan
-    from apps.api.services.parser import RecipeParser
+    from apps.api.db.models import OCRLine, Recipe, SourceSpan, FieldStatus, MediaAsset
     from apps.api.services.llm_vision import get_llm_vision_service
+    from apps.api.services.parser import RecipeParser, OCRLineData
+    from apps.api.services.storage import get_storage_backend
     from sqlalchemy import select
-    
-    logger.info(f"Structure Job: Starting for asset {asset_id}, user {user_id}")
-    
+
+    logger.info(f"Extract Job: Starting for asset {asset_id}, user {user_id}")
+
+    db = SessionLocal()
     try:
-        db = SessionLocal()
+        asset_uuid = UUID(asset_id) if isinstance(asset_id, str) else asset_id
+        ocr_lines_query = db.execute(
+            select(OCRLine).where(OCRLine.asset_id == asset_uuid)
+        )
+        ocr_line_models = ocr_lines_query.scalars().all()
+        if not ocr_line_models:
+            return {"status": "failed", "error": "No OCR lines found"}
+
+        ocr_line_map = {str(line.id): line for line in ocr_line_models}
+        ocr_lines_payload = [
+            {"id": str(line.id), "text": line.text, "page": line.page}
+            for line in ocr_line_models
+        ]
+
+        if image_bytes is None:
+            asset = db.query(MediaAsset).filter(MediaAsset.id == asset_uuid).first()
+            if not asset:
+                return {"status": "failed", "error": "Asset not found"}
+            storage = get_storage_backend()
+            image_bytes = storage.get(asset.storage_path)
+
+        vision_service = get_llm_vision_service()
         try:
-            # Fetch OCR lines
-            ocr_lines_query = db.execute(
-                select(OCRLine).where(OCRLine.asset_id == asset_id)
-            )
-            ocr_line_models = ocr_lines_query.scalars().all()
-            
-            if not ocr_line_models:
-                logger.warning(f"No OCR lines found for asset {asset_id}")
-                return {
-                    "status": "failed",
-                    "asset_id": asset_id,
-                    "error": "No OCR lines found",
-                }
-            
-            # Convert to parser format
-            from apps.api.services.parser import OCRLineData
-            ocr_lines_data = [
+            vision_result = vision_service.extract_with_evidence(image_bytes, ocr_lines_payload)
+            recipe_data = _vision_to_recipe_payload(vision_result)
+            field_statuses = _build_field_statuses(recipe_data)
+
+            spans: List[Dict[str, Any]] = []
+            title = vision_result.get("title") or {}
+            if isinstance(title, dict) and title.get("text"):
+                span = _build_span_from_evidence(
+                    "title",
+                    title.get("text"),
+                    title.get("evidence_ocr_line_ids", []),
+                    ocr_line_map,
+                    asset_id,
+                    source_method="vision-api",
+                )
+                if span:
+                    spans.append(span)
+
+            for idx, item in enumerate(vision_result.get("ingredients") or []):
+                if not isinstance(item, dict):
+                    continue
+                span = _build_span_from_evidence(
+                    f"ingredients[{idx}].original_text",
+                    item.get("text") or "",
+                    item.get("evidence_ocr_line_ids", []),
+                    ocr_line_map,
+                    asset_id,
+                    source_method="vision-api",
+                )
+                if span:
+                    spans.append(span)
+
+            for idx, item in enumerate(vision_result.get("steps") or []):
+                if not isinstance(item, dict):
+                    continue
+                span = _build_span_from_evidence(
+                    f"steps[{idx}].text",
+                    item.get("text") or "",
+                    item.get("evidence_ocr_line_ids", []),
+                    ocr_line_map,
+                    asset_id,
+                    source_method="vision-api",
+                )
+                if span:
+                    spans.append(span)
+
+            servings = vision_result.get("servings") or {}
+            if isinstance(servings, dict) and servings.get("value") is not None:
+                span = _build_span_from_evidence(
+                    "servings",
+                    str(servings.get("value")),
+                    servings.get("evidence_ocr_line_ids", []),
+                    ocr_line_map,
+                    asset_id,
+                    source_method="vision-api",
+                )
+                if span:
+                    spans.append(span)
+
+            times = vision_result.get("times") or {}
+            if isinstance(times, dict):
+                for key in ["prep_min", "cook_min", "total_min"]:
+                    entry = times.get(key)
+                    if isinstance(entry, dict) and entry.get("value") is not None:
+                        span = _build_span_from_evidence(
+                            f"times.{key}",
+                            str(entry.get("value")),
+                            entry.get("evidence_ocr_line_ids", []),
+                            ocr_line_map,
+                            asset_id,
+                            source_method="vision-api",
+                        )
+                        if span:
+                            spans.append(span)
+
+        except Exception as exc:
+            logger.warning(f"Vision extraction failed; falling back to parser: {exc}")
+            parser_lines = [
                 OCRLineData(
                     page=line.page,
                     text=line.text,
@@ -273,223 +414,89 @@ async def structure_recipe(
                 )
                 for line in ocr_line_models
             ]
-            
-            # Parse with deterministic parser
             parser = RecipeParser()
-            parse_result = parser.parse(ocr_lines_data, asset_id)
-            
+            parse_result = parser.parse(parser_lines, asset_id)
             recipe_data = parse_result.get("recipe", {})
-            source_spans = parse_result.get("spans", [])
+            spans = parse_result.get("spans", [])
             field_statuses = parse_result.get("field_statuses", [])
-            
-            logger.info(f"Parser extracted: title={bool(recipe_data.get('title'))}, "
-                       f"ingredients={len(recipe_data.get('ingredients', []))}, "
-                       f"steps={len(recipe_data.get('steps', []))}")
-            
-            # Check for critical fields
-            missing_critical = _check_missing_critical_fields(recipe_data)
-            
-            if missing_critical:
-                logger.info(f"Critical fields missing: {missing_critical}. Invoking LLM fallback.")
-                
-                # Get the original file data from asset
-                from apps.api.db.models import MediaAsset
-                asset = db.query(MediaAsset).filter(MediaAsset.id == asset_id).first()
-                
-                if asset and asset.file_data:
-                    try:
-                        # Invoke LLM vision fallback
-                        llm_service = get_llm_vision_service()
-                        llm_result = llm_service.extract_recipe_from_image(asset.file_data)
-                        logger.info(f"LLM fallback returned: {list(llm_result.keys())}")
-                        
-                        # Merge LLM results with OCR results
-                        recipe_data = _merge_llm_fallback(
-                            ocr_result=recipe_data,
-                            llm_result=llm_result,
-                            missing_critical=missing_critical,
-                        )
-                        
-                        # Mark merged fields with source_method="llm-vision"
-                        for span in source_spans:
-                            if span.get("field_path") in missing_critical:
-                                span["source_method"] = "llm-vision"
-                        
-                        logger.info("LLM fallback merged successfully")
-                    
-                    except Exception as e:
-                        logger.warning(f"LLM fallback failed (proceeding with OCR only): {e}")
-                else:
-                    logger.warning("MediaAsset file data not available; cannot invoke LLM fallback")
-            
-            # Store in database
+            for span in spans:
+                span["source_method"] = "ocr"
+
+        recipe_uuid = UUID(recipe_id) if recipe_id else None
+        user_uuid = UUID(user_id) if isinstance(user_id, str) else user_id
+        recipe = db.query(Recipe).filter(Recipe.id == recipe_uuid).first() if recipe_uuid else None
+        if not recipe:
             recipe = Recipe(
-                id=recipe_id or _generate_uuid(),
-                user_id=user_id,
-                asset_id=asset_id,
-                title=recipe_data.get("title"),
-                servings=recipe_data.get("servings"),
-                ingredients=recipe_data.get("ingredients", []),
-                steps=recipe_data.get("steps", []),
-                tags=recipe_data.get("tags", []),
-                times=recipe_data.get("times", {}),
+                id=recipe_uuid or _generate_uuid(),
+                user_id=user_uuid,
                 status="draft",
             )
             db.add(recipe)
             db.flush()
-            
-            # Store source spans with source_method attribution
-            for span in source_spans:
-                source_method = span.get("source_method", "ocr")
-                source_span = SourceSpan(
+
+        recipe.title = recipe_data.get("title")
+        recipe.servings = recipe_data.get("servings")
+        recipe.servings_estimate = recipe_data.get("servings_estimate")
+        recipe.times = recipe_data.get("times", {})
+        recipe.ingredients = recipe_data.get("ingredients", [])
+        recipe.steps = recipe_data.get("steps", [])
+        recipe.tags = recipe_data.get("tags", [])
+
+        db.query(SourceSpan).filter_by(recipe_id=recipe.id).delete()
+        db.query(FieldStatus).filter_by(recipe_id=recipe.id).delete()
+
+        for span in spans:
+            asset_value = span.get("asset_id") or asset_id
+            asset_uuid = UUID(asset_value) if isinstance(asset_value, str) else asset_value
+            source_span = SourceSpan(
+                recipe_id=recipe.id,
+                field_path=span.get("field_path"),
+                asset_id=asset_uuid,
+                page=span.get("page", 0),
+                bbox=span.get("bbox"),
+                extracted_text=span.get("extracted_text"),
+                ocr_confidence=span.get("confidence", span.get("ocr_confidence", 0.0)),
+                source_method=span.get("source_method", "ocr"),
+                evidence=span.get("evidence"),
+            )
+            db.add(source_span)
+
+        for status in field_statuses:
+            db.add(
+                FieldStatus(
                     recipe_id=recipe.id,
-                    field_path=span.get("field_path"),
-                    source_asset_id=span.get("asset_id"),
-                    page=span.get("page"),
-                    bbox=span.get("bbox"),
-                    extracted_text=span.get("extracted_text"),
-                    ocr_confidence=span.get("confidence", 0.0),
-                    source_method=source_method,
+                    field_path=status.get("field_path"),
+                    status=status.get("status"),
+                    notes=status.get("notes"),
                 )
-                db.add(source_span)
-            
-            db.commit()
-            logger.info(f"Recipe {recipe.id} created with {len(source_spans)} source spans")
-            
-            return {
-                "status": "success",
-                "asset_id": asset_id,
-                "recipe_id": recipe.id,
-                "field_statuses": field_statuses,
-            }
-        
-        finally:
-            db.close()
-    
-    except Exception as e:
-        logger.error(f"Structure Job failed for asset {asset_id}: {e}", exc_info=True)
-        return {
-            "status": "failed",
-            "asset_id": asset_id,
-            "error": str(e),
-        }
+            )
+
+        db.commit()
+        return {"status": "success", "recipe_id": str(recipe.id)}
+    finally:
+        db.close()
 
 
-def _check_missing_critical_fields(recipe_data: Dict[str, Any]) -> List[str]:
-    """
-    Check if any critical fields are missing.
-    
-    Critical fields: title, ingredients, steps
-    
-    Args:
-        recipe_data: Parsed recipe dict
-    
-    Returns:
-        List of missing field names
-    """
-    missing = []
-    
-    if not recipe_data.get("title"):
-        missing.append("title")
-    
-    if not recipe_data.get("ingredients") or len(recipe_data["ingredients"]) == 0:
-        missing.append("ingredients")
-    
-    if not recipe_data.get("steps") or len(recipe_data["steps"]) == 0:
-        missing.append("steps")
-    
-    return missing
-
-
-def _merge_llm_fallback(
-    ocr_result: Dict[str, Any],
-    llm_result: Dict[str, Any],
-    missing_critical: List[str],
+async def structure_recipe(
+    asset_id: str,
+    user_id: str,
+    recipe_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Merge LLM fallback results with OCR results.
-    
-    LLM results fill in missing critical fields only; does not overwrite OCR data.
-    
-    Args:
-        ocr_result: Original OCR parsing result
-        llm_result: LLM vision extraction result
-        missing_critical: List of missing critical field names
-    
-    Returns:
-        Merged recipe dict
+    Legacy structure job retained for compatibility.
+    Delegates to vision-primary extract job.
     """
-    merged = ocr_result.copy()
-    
-    # Only fill missing critical fields from LLM
-    if "title" in missing_critical and llm_result.get("title"):
-        merged["title"] = llm_result["title"]
-        logger.info(f"Filled title from LLM: {llm_result['title'][:50]}")
-    
-    if "ingredients" in missing_critical and llm_result.get("ingredients"):
-        merged["ingredients"] = llm_result["ingredients"]
-        logger.info(f"Filled {len(llm_result['ingredients'])} ingredients from LLM")
-    
-    if "steps" in missing_critical and llm_result.get("steps"):
-        merged["steps"] = llm_result["steps"]
-        logger.info(f"Filled {len(llm_result['steps'])} steps from LLM")
-    
-    # Optional: fill non-critical fields if LLM has them
-    if not merged.get("servings") and llm_result.get("servings"):
-        merged["servings"] = llm_result["servings"]
-    
-    if not merged.get("times"):
-        merged["times"] = {}
-    
-    if not merged["times"].get("prep_min") and llm_result.get("prep_time"):
-        merged["times"]["prep_min"] = _parse_time_to_minutes(llm_result["prep_time"])
-    
-    if not merged["times"].get("cook_min") and llm_result.get("cook_time"):
-        merged["times"]["cook_min"] = _parse_time_to_minutes(llm_result["cook_time"])
-    
-    if not merged["times"].get("total_min") and llm_result.get("total_time"):
-        merged["times"]["total_min"] = _parse_time_to_minutes(llm_result["total_time"])
-    
-    return merged
+    logger.info("Structure job is deprecated; delegating to extract_recipe.")
+    return await extract_recipe(asset_id=asset_id, user_id=user_id, recipe_id=recipe_id)
 
 
-def _parse_time_to_minutes(time_str: str) -> Optional[int]:
-    """
-    Parse time string (e.g. "30 minutes", "1 hour 30 min") to minutes.
-    
-    Args:
-        time_str: Time string from LLM extraction
-    
-    Returns:
-        Time in minutes, or None if cannot parse
-    """
-    if not time_str:
-        return None
-    
-    time_str = time_str.lower().strip()
-    total_minutes = 0
-    
-    # Parse hours
-    hours_match = re.search(r"(\d+)\s*(?:hour|hr|h)", time_str)
-    if hours_match:
-        total_minutes += int(hours_match.group(1)) * 60
-    
-    # Parse minutes
-    minutes_match = re.search(r"(\d+)\s*(?:minute|min|m)", time_str)
-    if minutes_match:
-        total_minutes += int(minutes_match.group(1))
-    
-    return total_minutes if total_minutes > 0 else None
-
-
-def _generate_uuid() -> str:
+def _generate_uuid() -> UUID:
     """Generate a UUID for recipe ID."""
     import uuid
-    return str(uuid.uuid4())
+    return uuid.uuid4()
 
 
 async def normalize_recipe(
-    ctx: dict,
     recipe_id: str,
     user_id: str,
 ) -> Dict[str, Any]:
@@ -620,61 +627,5 @@ def _quality_check(recipe: Any) -> List[str]:
     
     if recipe.servings and recipe.servings < 1:
         issues.append("Invalid servings value")
-
+    
     return issues
-
-
-# ============================================================================
-# ARQ Worker Configuration
-# ============================================================================
-
-try:
-    from arq.connections import RedisSettings
-    from config import settings
-except ImportError:
-    # Allow imports to work even if arq not installed (for development)
-    RedisSettings = None
-    settings = None
-
-
-if RedisSettings and settings:
-    async def startup(ctx: dict) -> None:
-        """Called when worker starts."""
-        logger.info("ARQ worker starting...")
-        logger.info(f"Redis URL: {settings.REDIS_URL}")
-        logger.info("Functions: ingest_recipe, structure_recipe, normalize_recipe")
-
-    async def shutdown(ctx: dict) -> None:
-        """Called when worker shuts down."""
-        logger.info("ARQ worker shutting down...")
-
-    class WorkerSettings:
-        """
-        ARQ worker configuration for background job processing.
-
-        Start worker with:
-            cd apps/api && python -m arq worker.jobs.WorkerSettings
-
-        Environment variables:
-            REDIS_URL: Redis connection URL (required)
-            DATABASE_URL: PostgreSQL connection URL (required)
-        """
-
-        # Register async job functions
-        functions = [ingest_recipe, structure_recipe, normalize_recipe]
-
-        # Parse Redis URL from settings
-        redis_settings = RedisSettings.from_dsn(settings.REDIS_URL)
-
-        # Worker pool settings
-        max_jobs = 10  # Max concurrent jobs
-        job_timeout = 300  # 5 minutes max per job
-        keep_result = 3600  # Keep results for 1 hour
-
-        # Logging
-        log_results = True
-        handle_signals = True
-
-        # Lifecycle hooks (async functions, not methods)
-        on_startup = startup
-        on_shutdown = shutdown

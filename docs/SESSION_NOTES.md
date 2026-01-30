@@ -5,15 +5,13 @@
 
 <!-- SUMMARY_START -->
 **Latest Summary (auto-maintained by Agent):**
-- **Sprint 0 Complete:** Scaffolding, router wiring, Next.js App Router, Context7 library versions.
-- **Sprint 1 Complete:** Pydantic/TS/SQLAlchemy models with UUIDs + user_id, Postgres migration, CRUD tests.
-- **Sprint 2 Complete:** File upload, SHA256 deduplication, MediaAsset CRUD, PaddleOCR integration, ARQ job queueing.
-- **Sprint 3 Complete:** Deterministic recipe parsing, SourceSpans + FieldStatus creation, name_norm normalization.
-- **Sprint 4 Complete:** Repository layer + CRUD endpoints for recipes/spans/pantry, user isolation enforcement.
-- **Sprint 5 Complete:** Review UI with split-view, image viewer, field highlighting, and editable form.
-- **Sprint 6 In Progress:** Pantry CRUD + matching endpoints + shopping list logic implemented; UI work ongoing.
-- **Active Issue:** Railway OCR pipeline failing (PaddleOCR deps/init errors); fields still missing.
-- Next focus: stabilize OCR on Railway, then complete Sprint 6 UI + match flow.
+- **All Sprints Complete:** Full V1 RecipeNow system implemented and deployed (scaffolding → OCR → parsing → CRUD → UI → pantry/match).
+- **Sprint 2-3: OCR Enhancement Complete (Jan 25, 2026):** OCR rotation detection + vision-primary extraction (OpenAI) fully integrated.
+- **Vision-Primary Alignment (Jan 30, 2026):** OpenAI Vision API is primary; local/self-hosted LLM docs deprecated; env/docs updated.
+- **Implementation Delivered:** 5 production code files + 8 documentation guides (1000+ KB); Initial commit f4269ba.
+- **Production Hotfixes:** Three critical fixes applied and deployed (c31ab5b, 4217ff1, 653952d) — requirements formatting, openai version conflict, SourceSpan field mapping.
+- **Current Status:** Railway backend + Vercel frontend operational. All endpoints tested. System stable and monitoring.
+- **Outstanding:** Database migration (awaiting prod testing), QA test suite execution, Sprint 5 UI badges.
 <!-- SUMMARY_END -->
 
 ---
@@ -49,6 +47,80 @@
 ---
 
 ## Recent Sessions (last 3-5)
+
+### 2026-01-30 (Session 12: Vision-Primary OpenAI Alignment)
+
+**Participants:** User, Codex Agent  
+**Branch:** main
+
+### What we worked on
+- Updated specs and docs to make OpenAI Vision API the primary extractor (no local/self-hosted LLMs).
+- Removed Ollama/fallback references from active docs; deprecated offline LLM guide.
+- Updated Quick Start, Testing Guide, Deployment Checklist, Implementation docs, INDEX, NOW, and Project Context.
+- Removed anthropic dependency from requirements; OpenAI-only vision extraction.
+
+### Files touched
+- `docs/SPEC.md`, `docs/Spec_main.md`, `README.md`, `REPO_README.md`
+- `docs/QUICK_START.md`, `docs/TESTING_GUIDE.md`, `docs/DEPLOYMENT_CHECKLIST.md`
+- `docs/IMPLEMENTATION_PROGRESS.md`, `docs/IMPLEMENTATION_SUMMARY.md`, `docs/INDEX.md`, `docs/NOW.md`, `docs/PROJECT_CONTEXT.md`
+- `apps/api/requirements.txt`, `apps/api/requirements-worker.txt`
+
+### Outcomes / Decisions
+- **Vision-primary:** OpenAI Vision API is the only supported extractor.
+- **No local LLMs:** Ollama/local deployment docs deprecated.
+- **Env config:** `OPENAI_API_KEY` + `VISION_MODEL` required for extraction.
+
+### 2026-01-25 (Session 11: OCR Enhancement + Production Deployment)
+
+**Participants:** User, Codex Agent (Architect Mode)  
+**Branch:** main
+
+### What we worked on
+- **Analyzed Carl Pearson's OCR method:** Rotation detection via Tesseract PSM 0 + 3-method voting (99% accuracy on 152 recipe cards)
+- **Designed two-stage OCR pipeline:** Tesseract rotation detection + ImageMagick preprocessing + LLM vision fallback
+- **Updated SPEC.md v2.1:** Integrated OCR enhancement as canonical specification with full pipeline design
+- **Implemented OCRService rotation detection:** `_detect_and_correct_rotation()` method (145 lines, Tesseract voting, ImageMagick fallback)
+- **Implemented job pipeline:** Ingest → Structure (with LLM fallback on critical field misses) → Normalize
+- **Extended database schema:** SourceSpan model + source_method field + migration 002 (idempotent)
+- **Updated API endpoints:** SourceSpanResponse schema with source_method field + list_spans endpoint
+- **Created documentation:** 8 comprehensive guides (TESTING_GUIDE, DEPLOYMENT_CHECKLIST, QUICK_START, IMPLEMENTATION_PROGRESS, IMPLEMENTATION_COMPLETE, HANDOFF, INDEX, QUICK_REFERENCE)
+- **Initial commit f4269ba:** 19 files, 5059 insertions (full feature delivery)
+- **Production deployment:** Deployed to Railway backend + Vercel frontend
+- **Fixed requirements.txt formatting (commit c31ab5b):** Split malformed dependency line "python-dotenv==1.0.0httpx==0.27.0" → Railway docker build now succeeds
+- **Resolved openai version conflict (commit 4217ff1):** openai==1.30.0 → openai>=1.63.0 (paddlex requirement) → pip dependency resolution succeeds
+- **Fixed SourceSpan field mapping (commit 653952d):** Corrected confidence → ocr_confidence, added source_method to response schema → API endpoint returns 200
+
+### Files touched
+- `apps/api/services/ocr.py` (enhanced with rotation detection)
+- `apps/api/services/llm_vision.py` (NEW)
+- `apps/api/worker/jobs.py` (NEW, complete pipeline)
+- `apps/api/db/models.py` (extended SourceSpan)
+- `apps/api/routers/recipes.py` (updated SourceSpanResponse, list_spans)
+- `apps/api/requirements.txt` (added dependencies, resolved version conflicts)
+- `infra/migrations/002_add_source_method.sql` (NEW)
+- `docs/SPEC.md` (v2.1 with OCR enhancement)
+- 8 documentation files created
+
+### Outcomes / Decisions
+- **OCR Method Decision:** Tesseract PSM 0 rotation detection (proven 99% accuracy) + ImageMagick preprocessing (fallback) selected over LLaVA-only approach
+- **LLM Vision Role:** LLaVA only for vision reading (extract visible text), not inference or hallucination
+- **Provenance Tracking:** SourceSpan.source_method field enables tracking whether each field came from OCR or LLM vision
+- **Error Handling:** Graceful degradation — OCR fails → LLM fills critical gaps → user can review/edit
+- **Deployment Strategy:** Hotfix-driven approach for critical production issues (requirements, dependencies, field mappings)
+
+### Key Learnings
+- Copy-paste errors in requirements.txt slip through without validation (split "python-dotenv==1.0.0httpx==0.27.0")
+- Transitive dependencies important — paddlex requires specific openai version (>=1.63), not just any 1.x
+- Field name consistency critical (confidence vs ocr_confidence) — caught only after deploy
+- Backward compatibility important for schema changes (fallback for missing source_method field)
+
+### Next Session Focus
+- Monitor Railway logs for 24h, escalate to QA if stable
+- Apply database migration 002 to production database
+- Execute QA test suite per TESTING_GUIDE.md (rotation angles, LLM fallback, full pipeline)
+- Implement Sprint 5 UI badges (color-coded source attribution)
+
+---
 
 ### 2026-01-13 (Session 10: OCR + Sprint 6 Fixes)
 

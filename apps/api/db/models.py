@@ -54,6 +54,7 @@ class Recipe(Base):
     user_id: Mapped[UUID] = mapped_column(SQLAUUID, nullable=False, index=True)
     title: Mapped[str | None] = mapped_column(String, nullable=True)
     servings: Mapped[int | None] = mapped_column(nullable=True)
+    servings_estimate: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     times: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     ingredients: Mapped[list] = mapped_column(JSON, default=[])
     steps: Mapped[list] = mapped_column(JSON, default=[])
@@ -73,7 +74,7 @@ class Recipe(Base):
 
 
 class SourceSpan(Base):
-    """Provenance link: maps a recipe field to its OCR or LLM-Vision source."""
+    """Provenance link: maps a recipe field to its OCR or vision-API source."""
     __tablename__ = "source_spans"
 
     id: Mapped[UUID] = mapped_column(SQLAUUID, primary_key=True)
@@ -84,7 +85,8 @@ class SourceSpan(Base):
     bbox: Mapped[list] = mapped_column(JSON, nullable=False)
     ocr_confidence: Mapped[float] = mapped_column(Float, default=0.0)
     extracted_text: Mapped[str | None] = mapped_column(Text, nullable=True)
-    source_method: Mapped[str] = mapped_column(String(20), default="ocr")  # "ocr" or "llm-vision"
+    source_method: Mapped[str] = mapped_column(String(20), default="ocr")  # "ocr", "vision-api", or "user"
+    evidence: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
     __table_args__ = (

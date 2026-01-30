@@ -1,362 +1,250 @@
 """
-LLM Vision service for structured recipe extraction using vision LLM fallback.
+Vision API service for structured recipe extraction (vision-primary).
 
-Uses Ollama + LLaVA-7B for offline vision-based text reading from recipe media.
-Serves as fallback when OCR extraction is insufficient (missing critical fields).
-
-Design principles:
-- Vision reader, not inference engine (reads visible text from media, not guesses)
-- Offline-first (Ollama + LLaVA) with optional cloud fallback (Claude 3 Haiku, GPT-4V)
-- Triggered only when critical fields missing after deterministic OCR parsing
-- All extractions tagged with source_method="llm-vision" for audit trail
+Uses OpenAI vision models as the primary extractor while OCR supplies
+line IDs + bboxes for provenance. The model must return strict JSON
+with evidence_ocr_line_ids for each extracted field.
 """
 
 import json
 import logging
 import os
-from io import BytesIO
-from typing import Optional
-
-import httpx
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
 
 class LLMVisionService:
     """
-    Vision-based recipe field extraction using LLM.
-    
-    Reads visible text from recipe media (images/PDFs) to fill missing critical fields
-    when OCR extraction is insufficient. Not for inference or guessing.
-    
+    Vision-based recipe field extraction using OpenAI.
+
+    Reads visible text from recipe media and references OCR line IDs as evidence.
+
     Configuration:
-    - OLLAMA_HOST: Ollama server URL (default: http://localhost:11434)
-    - OLLAMA_MODEL: LLaVA model identifier (default: llava:7b)
-    - LLM_FALLBACK_ENABLED: Enable fallback extraction (default: true)
-    - LLM_FALLBACK_PROVIDER: Cloud provider if Ollama unavailable (claude|openai)
-    - LLM_FALLBACK_API_KEY: API key for cloud provider fallback
+    - VISION_MODEL: OpenAI model identifier (default: gpt-4o-mini)
+    - VISION_MAX_OUTPUT_TOKENS: max tokens (default: 1024)
+    - VISION_STRICT_JSON: enforce strict JSON (default: true)
+    - VISION_RETRY_COUNT: retries per provider (default: 1)
+    - OPENAI_API_KEY: OpenAI API key
     """
-    
-    # Structured extraction prompt - requests reading visible text, not inference
-    EXTRACTION_PROMPT = """You are a recipe data extractor. Your task is to READ VISIBLE TEXT from this recipe image and extract structured data.
 
-IMPORTANT: Only extract visible text that you can read from the image. Do NOT guess, infer, or make up values.
-
-Extract the following fields if visible in the image:
-1. title: The recipe name/title if visible
-2. ingredients: List of ingredients with quantities if visible (format as array)
-3. steps: Cooking/preparation steps if visible (format as array)
-4. servings: Number of servings if visible
-5. prep_time: Preparation time if visible
-6. cook_time: Cooking time if visible
-7. total_time: Total time if visible
-8. cuisine: Cuisine type if visible
-9. dietary_notes: Any dietary restrictions/notes if visible
-
-Return ONLY a JSON object with these fields. Only include fields where you can clearly read the text from the image.
-If a field is not visible or readable, omit it from the response.
-
-Response format:
-{
-    "title": "...",
-    "ingredients": ["...", "..."],
-    "steps": ["...", "..."],
-    "servings": "...",
-    ...
-}
-"""
+    BASE_PROMPT = (
+        "You are a recipe data extractor. READ VISIBLE TEXT from the image. "
+        "Do NOT guess or infer missing values. Use OCR line IDs as evidence."
+    )
 
     def __init__(
         self,
-        ollama_host: Optional[str] = None,
-        ollama_model: Optional[str] = None,
-        enable_fallback: bool = True,
-        fallback_provider: Optional[str] = None,
-        fallback_api_key: Optional[str] = None,
+        model: Optional[str] = None,
+        max_tokens: Optional[int] = None,
+        strict_json: Optional[bool] = None,
+        retry_count: Optional[int] = None,
+        api_key: Optional[str] = None,
     ):
-        """
-        Initialize LLM Vision service.
-        
-        Args:
-            ollama_host: Ollama server URL
-            ollama_model: Model identifier for Ollama
-            enable_fallback: Enable cloud provider fallback
-            fallback_provider: Cloud provider ("claude" or "openai")
-            fallback_api_key: API key for cloud provider
-        """
-        self.ollama_host = ollama_host or os.getenv("OLLAMA_HOST", "http://localhost:11434")
-        self.ollama_model = ollama_model or os.getenv("OLLAMA_MODEL", "llava:7b")
-        self.enable_fallback = enable_fallback and os.getenv("LLM_FALLBACK_ENABLED", "true").lower() == "true"
-        self.fallback_provider = fallback_provider or os.getenv("LLM_FALLBACK_PROVIDER")
-        self.fallback_api_key = fallback_api_key or os.getenv("LLM_FALLBACK_API_KEY")
-        
-        logger.info(
-            f"LLMVisionService initialized: ollama_host={self.ollama_host}, "
-            f"model={self.ollama_model}, fallback_enabled={self.enable_fallback}"
+        self.model = model or os.getenv("VISION_MODEL", "gpt-4o-mini")
+        self.max_tokens = max_tokens or int(os.getenv("VISION_MAX_OUTPUT_TOKENS", "1024"))
+        self.strict_json = (
+            strict_json
+            if strict_json is not None
+            else os.getenv("VISION_STRICT_JSON", "true").lower() == "true"
         )
-    
-    def extract_recipe_from_image(self, image_data: bytes) -> dict:
+        self.retry_count = retry_count or int(os.getenv("VISION_RETRY_COUNT", "1"))
+        self.max_ocr_lines = int(os.getenv("VISION_MAX_OCR_LINES", "400"))
+
+        self.api_key = api_key or os.getenv("OPENAI_API_KEY")
+
+        if not self.api_key:
+            raise RuntimeError("OPENAI_API_KEY is required for vision extraction")
+
+        logger.info(
+            "Vision service initialized: provider=openai model=%s strict_json=%s",
+            self.model,
+            self.strict_json,
+        )
+
+    def extract_with_evidence(self, image_data: bytes, ocr_lines: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
-        Extract recipe structure from image using vision LLM.
-        
-        Attempts Ollama first, falls back to cloud provider if configured and Ollama unavailable.
-        
+        Extract recipe structure with OCR evidence IDs.
+
         Args:
-            image_data: Binary image data (JPEG, PNG, etc.)
-        
+            image_data: Binary image bytes
+            ocr_lines: List of OCR line dicts with id/text/page
         Returns:
-            Dict with extracted fields: title, ingredients, steps, servings, times, etc.
-            Only includes fields that were clearly readable from image.
-        
-        Raises:
-            Exception: If all extraction methods fail
+            Normalized extraction dict following SPEC.md
         """
-        # Try Ollama first
-        try:
-            logger.debug(f"Attempting Ollama extraction using {self.ollama_model}")
-            return self._extract_via_ollama(image_data)
-        except Exception as e:
-            logger.warning(f"Ollama extraction failed: {e}")
-            
-            if not self.enable_fallback:
-                logger.error("Ollama failed and fallback disabled")
-                raise
-            
-            # Try cloud fallback
-            if self.fallback_provider == "claude":
-                try:
-                    logger.debug("Falling back to Claude 3 Haiku vision")
-                    return self._extract_via_claude(image_data)
-                except Exception as e2:
-                    logger.error(f"Claude fallback also failed: {e2}")
-                    raise
-            
-            elif self.fallback_provider == "openai":
-                try:
-                    logger.debug("Falling back to GPT-4 Vision")
-                    return self._extract_via_openai(image_data)
-                except Exception as e2:
-                    logger.error(f"OpenAI fallback also failed: {e2}")
-                    raise
-            
-            else:
-                logger.error(f"No fallback provider configured; Ollama failed")
-                raise
-    
-    def _extract_via_ollama(self, image_data: bytes) -> dict:
+        prompt = self._build_prompt(ocr_lines)
+        response_text = self._extract_via_openai(image_data, prompt)
+        parsed = self._parse_json_response(response_text)
+        return self._normalize_vision_result(parsed)
+
+    def extract_recipe_from_image(self, image_data: bytes) -> Dict[str, Any]:
         """
-        Extract recipe using Ollama + LLaVA.
-        
-        Args:
-            image_data: Binary image data
-        
-        Returns:
-            Extracted recipe fields dict
-        
-        Raises:
-            Exception: If Ollama request fails
+        Backwards-compatible wrapper: extract without OCR evidence payload.
         """
-        import base64
-        
-        # Encode image as base64 for Ollama API
-        image_b64 = base64.b64encode(image_data).decode("utf-8")
-        
-        ollama_payload = {
-            "model": self.ollama_model,
-            "prompt": self.EXTRACTION_PROMPT,
-            "images": [image_b64],
-            "stream": False,
-        }
-        
-        try:
-            with httpx.Client(timeout=120.0) as client:
-                response = client.post(
-                    f"{self.ollama_host}/api/generate",
-                    json=ollama_payload,
-                )
-                response.raise_for_status()
-        
-            ollama_result = response.json()
-            response_text = ollama_result.get("response", "")
-            
-            logger.debug(f"Ollama response (first 500 chars): {response_text[:500]}")
-            
-            # Extract JSON from response
-            extracted = self._parse_json_response(response_text)
-            logger.info(f"Ollama extraction successful: {list(extracted.keys())}")
-            return extracted
-        
-        except httpx.ConnectError as e:
-            logger.warning(f"Ollama connection failed: {e}")
-            raise
-        except Exception as e:
-            logger.error(f"Ollama extraction error: {e}", exc_info=True)
-            raise
-    
-    def _extract_via_claude(self, image_data: bytes) -> dict:
-        """
-        Extract recipe using Claude 3 Haiku vision (cloud fallback).
-        
-        Requires ANTHROPIC_API_KEY environment variable.
-        
-        Args:
-            image_data: Binary image data
-        
-        Returns:
-            Extracted recipe fields dict
-        
-        Raises:
-            Exception: If Claude API request fails or no API key configured
-        """
-        try:
-            import anthropic
-        except ImportError:
-            raise RuntimeError("Claude fallback requires 'anthropic' package")
-        
-        if not self.fallback_api_key:
-            raise RuntimeError("Claude fallback requires LLM_FALLBACK_API_KEY")
-        
-        import base64
-        image_b64 = base64.b64encode(image_data).decode("utf-8")
-        
-        client = anthropic.Anthropic(api_key=self.fallback_api_key)
-        
-        try:
-            response = client.messages.create(
-                model="claude-3-haiku-20240307",
-                max_tokens=1024,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "image",
-                                "source": {
-                                    "type": "base64",
-                                    "media_type": "image/jpeg",
-                                    "data": image_b64,
-                                },
-                            },
-                            {
-                                "type": "text",
-                                "text": self.EXTRACTION_PROMPT,
-                            },
-                        ],
-                    }
-                ],
-            )
-            
-            response_text = response.content[0].text
-            logger.debug(f"Claude response (first 500 chars): {response_text[:500]}")
-            
-            extracted = self._parse_json_response(response_text)
-            logger.info(f"Claude extraction successful: {list(extracted.keys())}")
-            return extracted
-        
-        except Exception as e:
-            logger.error(f"Claude extraction error: {e}", exc_info=True)
-            raise
-    
-    def _extract_via_openai(self, image_data: bytes) -> dict:
-        """
-        Extract recipe using GPT-4 Vision (cloud fallback).
-        
-        Requires OPENAI_API_KEY environment variable.
-        
-        Args:
-            image_data: Binary image data
-        
-        Returns:
-            Extracted recipe fields dict
-        
-        Raises:
-            Exception: If OpenAI API request fails or no API key configured
-        """
+        return self.extract_with_evidence(image_data, [])
+
+    def _build_prompt(self, ocr_lines: List[Dict[str, Any]]) -> str:
+        lines = ocr_lines[: self.max_ocr_lines]
+        ocr_payload = [
+            {"id": str(line.get("id")), "text": line.get("text"), "page": line.get("page", 0)}
+            for line in lines
+        ]
+        ocr_json = json.dumps(ocr_payload, ensure_ascii=True)
+
+        schema = (
+            "Return ONLY JSON in this exact shape. Use evidence_ocr_line_ids for all fields:\n"
+            "{\n"
+            "  \"title\": { \"text\": \"...\", \"evidence_ocr_line_ids\": [\"...\"], \"confidence\": 0.0 },\n"
+            "  \"ingredients\": [\n"
+            "    { \"text\": \"...\", \"evidence_ocr_line_ids\": [\"...\"], \"confidence\": 0.0 }\n"
+            "  ],\n"
+            "  \"steps\": [\n"
+            "    { \"text\": \"...\", \"evidence_ocr_line_ids\": [\"...\"], \"confidence\": 0.0 }\n"
+            "  ],\n"
+            "  \"servings\": { \"value\": 4, \"evidence_ocr_line_ids\": [\"...\"], \"confidence\": 0.0, \"is_estimate\": false },\n"
+            "  \"servings_estimate\": { \"value\": 4, \"confidence\": 0.0, \"basis\": \"...\", \"is_estimate\": true },\n"
+            "  \"times\": {\n"
+            "    \"prep_min\": { \"value\": 10, \"evidence_ocr_line_ids\": [\"...\"], \"confidence\": 0.0 },\n"
+            "    \"cook_min\": { \"value\": 20, \"evidence_ocr_line_ids\": [\"...\"], \"confidence\": 0.0 }\n"
+            "  },\n"
+            "  \"unreadable_regions\": [{ \"note\": \"...\" }]\n"
+            "}\n"
+            "If a field is not visible, return null for that field or omit it."
+        )
+
+        return (
+            f"{self.BASE_PROMPT}\n\n"
+            f"OCR_LINES_JSON={ocr_json}\n\n"
+            f"{schema}"
+        )
+
+    def _extract_via_openai(self, image_data: bytes, prompt: str) -> str:
         try:
             from openai import OpenAI
         except ImportError:
-            raise RuntimeError("OpenAI fallback requires 'openai' package")
-        
-        if not self.fallback_api_key:
-            raise RuntimeError("OpenAI fallback requires LLM_FALLBACK_API_KEY")
-        
+            raise RuntimeError("OpenAI provider requires 'openai' package")
+
         import base64
+
         image_b64 = base64.b64encode(image_data).decode("utf-8")
-        
-        client = OpenAI(api_key=self.fallback_api_key)
-        
-        try:
-            response = client.chat.completions.create(
-                model="gpt-4-vision-preview",
-                max_tokens=1024,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:image/jpeg;base64,{image_b64}",
-                                },
+        client = OpenAI(api_key=self.api_key)
+        response = client.chat.completions.create(
+            model=self.model,
+            max_tokens=self.max_tokens,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{image_b64}",
                             },
-                            {
-                                "type": "text",
-                                "text": self.EXTRACTION_PROMPT,
-                            },
-                        ],
-                    }
-                ],
-            )
-            
-            response_text = response.choices[0].message.content
-            logger.debug(f"OpenAI response (first 500 chars): {response_text[:500]}")
-            
-            extracted = self._parse_json_response(response_text)
-            logger.info(f"OpenAI extraction successful: {list(extracted.keys())}")
-            return extracted
-        
-        except Exception as e:
-            logger.error(f"OpenAI extraction error: {e}", exc_info=True)
-            raise
-    
+                        },
+                        {"type": "text", "text": prompt},
+                    ],
+                }
+            ],
+        )
+        return response.choices[0].message.content
+
     @staticmethod
     def _parse_json_response(response_text: str) -> dict:
-        """
-        Extract JSON object from LLM response text.
-        
-        Handles responses with surrounding text by finding JSON block.
-        
-        Args:
-            response_text: Raw response from LLM
-        
-        Returns:
-            Parsed JSON dict
-        
-        Raises:
-            ValueError: If no valid JSON found
-        """
-        # Try direct JSON parse first
         try:
             return json.loads(response_text)
         except json.JSONDecodeError:
             pass
-        
-        # Look for JSON block in response
+
         import re
-        
-        json_pattern = r"\{[^{}]*\}"
-        match = re.search(json_pattern, response_text, re.DOTALL)
-        
+
+        json_pattern = r"\{[\s\S]*\}"
+        match = re.search(json_pattern, response_text)
         if match:
-            try:
-                return json.loads(match.group())
-            except json.JSONDecodeError:
-                pass
-        
-        logger.error(f"Could not parse JSON from response: {response_text[:200]}")
-        raise ValueError(f"No valid JSON found in LLM response")
+            return json.loads(match.group())
+
+        raise ValueError("No valid JSON found in vision response")
+
+    @staticmethod
+    def _normalize_vision_result(data: Dict[str, Any]) -> Dict[str, Any]:
+        normalized: Dict[str, Any] = {}
+
+        def normalize_item(item: Any) -> Dict[str, Any]:
+            if isinstance(item, str):
+                return {"text": item, "evidence_ocr_line_ids": [], "confidence": None}
+            if isinstance(item, dict):
+                return {
+                    "text": item.get("text") or item.get("value") or "",
+                    "evidence_ocr_line_ids": item.get("evidence_ocr_line_ids") or [],
+                    "confidence": item.get("confidence"),
+                }
+            return {"text": "", "evidence_ocr_line_ids": [], "confidence": None}
+
+        title = data.get("title")
+        if title is not None:
+            normalized["title"] = normalize_item(title)
+
+        ingredients = data.get("ingredients") or []
+        normalized["ingredients"] = [normalize_item(item) for item in ingredients]
+
+        steps = data.get("steps") or []
+        normalized["steps"] = [normalize_item(item) for item in steps]
+
+        servings = data.get("servings")
+        if servings is not None:
+            if isinstance(servings, dict):
+                value = servings.get("value")
+                if isinstance(value, str) and value.isdigit():
+                    value = int(value)
+                normalized["servings"] = {
+                    "value": value,
+                    "evidence_ocr_line_ids": servings.get("evidence_ocr_line_ids") or [],
+                    "confidence": servings.get("confidence"),
+                    "is_estimate": bool(servings.get("is_estimate", False)),
+                }
+            else:
+                normalized["servings"] = {
+                    "value": servings,
+                    "evidence_ocr_line_ids": [],
+                    "confidence": None,
+                    "is_estimate": False,
+                }
+
+        servings_estimate = data.get("servings_estimate")
+        if servings_estimate is not None and isinstance(servings_estimate, dict):
+            normalized["servings_estimate"] = {
+                "value": servings_estimate.get("value"),
+                "confidence": servings_estimate.get("confidence"),
+                "basis": servings_estimate.get("basis"),
+                "is_estimate": True,
+            }
+
+        times = data.get("times") or {}
+        if isinstance(times, dict):
+            normalized_times: Dict[str, Any] = {}
+            for key in ["prep_min", "cook_min", "total_min"]:
+                entry = times.get(key)
+                if entry is None:
+                    continue
+                if isinstance(entry, dict):
+                    normalized_times[key] = {
+                        "value": entry.get("value"),
+                        "evidence_ocr_line_ids": entry.get("evidence_ocr_line_ids") or [],
+                        "confidence": entry.get("confidence"),
+                    }
+                else:
+                    normalized_times[key] = {
+                        "value": entry,
+                        "evidence_ocr_line_ids": [],
+                        "confidence": None,
+                    }
+            normalized["times"] = normalized_times
+
+        if data.get("unreadable_regions") is not None:
+            normalized["unreadable_regions"] = data.get("unreadable_regions")
+
+        return normalized
 
 
 def get_llm_vision_service() -> LLMVisionService:
-    """Factory function to get LLM Vision service instance."""
+    """Factory function to get vision service instance."""
     return LLMVisionService()

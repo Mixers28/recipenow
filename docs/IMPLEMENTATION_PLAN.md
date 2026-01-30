@@ -1,9 +1,9 @@
 # Implementation Plan (Coder)
 
 ## Goals
-- Implement RecipeNow V1 per `docs/SPEC.md`: ingest recipe media, OCR + constrained parsing, provenance-first review UI, pantry matching, and verification.
+- Implement RecipeNow V1 per `docs/SPEC.md`: ingest recipe media, OCR + vision-primary extraction (OpenAI), provenance-first review UI, pantry matching, and verification.
 - Ship an end-to-end flow that keeps provenance for every extracted field and flags user-entered edits.
-- Provide a self-hosted stack (FastAPI + Postgres + Next.js) with worker jobs for OCR/parse/normalize.
+- Provide a self-hosted stack (FastAPI + Postgres + Next.js) with worker jobs for OCR/vision extract/normalize.
 
 ## Non-goals
 - Public sharing/community features.
@@ -17,7 +17,7 @@
 - No silent inference: missing/ambiguous values become questions or missing fields.
 - Every field must carry `FieldStatus`; non-extracted fields must show badges.
 - Verification requires title, >= 1 ingredient, >= 1 step; missing times/servings keep `needs_review` unless user confirms "unknown."
-- Parsing must use OCR text only; do not invent quantities/units.
+- Vision extraction must reference OCR line evidence; do not invent quantities/units.
 - Privacy: keep assets private; no sharing in V1.
 - API must match V1 endpoints in `docs/SPEC.md`.
 
@@ -31,7 +31,7 @@ Mermaid
 flowchart LR
   A[Upload Media] --> B[Ingest Job]
   B --> C[OCR Lines Stored]
-  C --> D[Structure Job]
+  C --> D[Vision Extract Job]
   D --> E[Recipe Draft + SourceSpans + FieldStatus]
   E --> F[Normalize Job]
   F --> G[Review UI]
@@ -42,7 +42,7 @@ flowchart LR
 ## Data flow & interfaces
 - Ingest: `POST /assets/upload` stores media, triggers OCR job.
 - OCR: generates OCR lines/tokens with bbox + confidence; persisted by asset/page.
-- Structure: parses OCR lines into Recipe draft + SourceSpans + FieldStatus.
+- Extract: vision-primary extraction using image + OCR lines, produces Recipe draft + SourceSpans + FieldStatus.
 - Normalize: computes `name_norm` and ingredient tags without altering `original_text`.
 - Review: user edits update field values + set `FieldStatus` to `user_entered` and update/clear spans.
 
@@ -77,7 +77,7 @@ All library versions resolved via Context7 MCP tool on 2026-01-09:
 - `infra/docker-compose.yml` — Updated with postgres, redis, api, web, worker, minio services
 
 Endpoints (V1)
-- Assets: `POST /assets/upload`, `GET /assets/{id}`, `POST /assets/{id}/ocr`, `POST /assets/{id}/structure`
+- Assets: `POST /assets/upload`, `GET /assets/{id}`, `POST /assets/{id}/ocr`, `POST /assets/{id}/extract`
 - Recipes: `GET /recipes`, `POST /recipes`, `GET /recipes/{id}`, `PATCH /recipes/{id}`, `POST /recipes/{id}/verify`
 - Spans: `POST /recipes/{id}/spans`, `GET /recipes/{id}/spans`
 - Pantry: `GET /pantry`, `POST /pantry/items`, `DELETE /pantry/items/{id}`
