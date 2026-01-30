@@ -8,7 +8,7 @@ import Link from 'next/link'
 import { useRecipeList } from '@/hooks/useRecipes'
 import { deleteRecipe, cleanupEmptyRecipes, cleanupAllRecipes } from '@/lib/api'
 import { useDebounce } from '@/hooks/useDebounce'
-import { RecipeStatusBadge } from '@/components/RecipeStatusBadge'
+import { RecipeThumbnailCard } from '@/components/RecipeThumbnailCard'
 import { PullToRefresh } from '@/components/PullToRefresh'
 
 const DEMO_USER_ID = '550e8400-e29b-41d4-a716-446655440000' // Demo user for testing
@@ -194,68 +194,14 @@ export default function LibraryPage() {
             </Link>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {recipes.map((recipe) => (
-              <Link
-                key={recipe.id}
-                href={`/review/${recipe.id}`}
-                className="bg-white rounded-lg shadow hover:shadow-lg transition-shadow overflow-hidden"
-              >
-                {/* Recipe card */}
-                <div className="p-6">
-                  <div className="flex justify-between items-start mb-2 gap-3">
-                    <h3 className="text-lg font-semibold text-gray-900 line-clamp-2">
-                      {recipe.title || 'Untitled Recipe'}
-                    </h3>
-                    <div className="flex items-start gap-2">
-                      <RecipeStatusBadge status={recipe.status} />
-                      <button
-                        onClick={(e) => handleDelete(e, recipe.id)}
-                        disabled={deletingId === recipe.id}
-                        className="text-xs text-red-600 hover:text-red-700 disabled:text-gray-400"
-                        aria-label={`Delete ${recipe.title || 'recipe'}`}
-                        title="Delete recipe"
-                      >
-                        {deletingId === recipe.id ? 'Deleting...' : 'Delete'}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Recipe info */}
-                  <div className="space-y-2 text-sm text-gray-600 mb-4">
-                    {recipe.servings && <p>🍽️ Servings: {recipe.servings}</p>}
-                    {recipe.ingredients && recipe.ingredients.length > 0 && (
-                      <p>📋 {recipe.ingredients.length} ingredients</p>
-                    )}
-                    {recipe.steps && recipe.steps.length > 0 && (
-                      <p>👣 {recipe.steps.length} steps</p>
-                    )}
-                  </div>
-
-                  {/* Tags */}
-                  {recipe.tags && recipe.tags.length > 0 && (
-                    <div className="flex flex-wrap gap-2">
-                      {recipe.tags.slice(0, 3).map((tag) => (
-                        <span
-                          key={tag}
-                          className="inline-block px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded"
-                        >
-                          {tag}
-                        </span>
-                      ))}
-                      {recipe.tags.length > 3 && (
-                        <span className="inline-block px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded">
-                          +{recipe.tags.length - 3} more
-                        </span>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Date */}
-                  <div className="mt-4 text-xs text-gray-500">
-                    {recipe.created_at && new Date(recipe.created_at).toLocaleDateString()}
-                  </div>
-                </div>
+              <Link key={recipe.id} href={`/review/${recipe.id}`}>
+                <RecipeThumbnailCard
+                  recipe={recipe}
+                  onDelete={handleDelete}
+                  isDeleting={deletingId === recipe.id}
+                />
               </Link>
             ))}
           </div>
