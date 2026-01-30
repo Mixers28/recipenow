@@ -149,6 +149,7 @@ class RecipeRepository:
             "tags",
             "nutrition",
             "status",
+            "thumbnail_crop",
         }
         for key, value in kwargs.items():
             if key in allowed_fields:
