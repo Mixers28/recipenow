@@ -98,13 +98,26 @@ async def upload_asset(
         if existing:
             logger.info(f"File already uploaded: {existing.id}")
 
-            # Ensure the file still exists in storage (handle cleaned volumes)
-            if not storage.exists(existing.storage_path):
-                logger.warning(
-                    f"Asset record {existing.id} missing on disk at {existing.storage_path}; re-saving file."
-                )
-                file_bytes.seek(0)
-                storage.save(file_bytes, existing.storage_path)
+            # Read file bytes for passing to worker
+            file_bytes.seek(0)
+            file_data_bytes = file_bytes.read()
+
+            # Ensure file_data is stored in DB (for Railway ephemeral storage)
+            if not existing.file_data:
+                logger.info(f"Updating asset {existing.id} with file_data in DB")
+                existing.file_data = file_data_bytes
+                db.commit()
+
+            # Also try to save to disk (may fail on Railway but that's OK)
+            try:
+                if not storage.exists(existing.storage_path):
+                    logger.warning(
+                        f"Asset record {existing.id} missing on disk at {existing.storage_path}; re-saving file."
+                    )
+                    file_bytes.seek(0)
+                    storage.save(file_bytes, existing.storage_path)
+            except Exception as e:
+                logger.debug(f"Could not save to disk storage (OK on Railway): {e}")
 
             # Create a new recipe for the duplicate asset
             recipe_repo = RecipeRepository(db)
@@ -138,8 +151,8 @@ async def upload_asset(
 
                     redis_pool = await create_pool(redis_settings)
 
-                    # Read file data from storage to pass to worker
-                    file_data = storage.load(existing.storage_path)
+                    # Use file data we already have
+                    file_data = file_data_bytes
 
                     job = await redis_pool.enqueue_job(
                         "ingest_job",
