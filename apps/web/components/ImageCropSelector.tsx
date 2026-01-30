@@ -110,7 +110,7 @@ export function ImageCropSelector({
       {/* Image with crop overlay */}
       <div
         ref={containerRef}
-        className="relative w-full aspect-[4/5] bg-gray-100 rounded-lg overflow-hidden cursor-crosshair select-none"
+        className="relative w-full bg-gray-100 rounded-lg overflow-hidden cursor-crosshair select-none"
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
@@ -119,11 +119,11 @@ export function ImageCropSelector({
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
       >
-        {/* Base image */}
+        {/* Base image - use object-contain so full image is visible and crop coords match */}
         <img
           src={imageUrl}
           alt="Recipe to crop"
-          className="w-full h-full object-cover pointer-events-none"
+          className="w-full h-auto pointer-events-none"
           draggable={false}
         />
 
