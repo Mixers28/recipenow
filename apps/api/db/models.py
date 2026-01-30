@@ -5,7 +5,7 @@ All user-scoped entities include user_id for multi-user support.
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Index, String, Text, UUID as SQLAUUID
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, Index, LargeBinary, String, Text, UUID as SQLAUUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -23,6 +23,8 @@ class MediaAsset(Base):
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     storage_path: Mapped[str] = mapped_column(String, nullable=False)
     source_label: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Store image data directly in DB for Railway ephemeral storage compatibility
+    file_data: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
     __table_args__ = (
@@ -54,7 +56,6 @@ class Recipe(Base):
     user_id: Mapped[UUID] = mapped_column(SQLAUUID, nullable=False, index=True)
     title: Mapped[str | None] = mapped_column(String, nullable=True)
     servings: Mapped[int | None] = mapped_column(nullable=True)
-    servings_estimate: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     times: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     ingredients: Mapped[list] = mapped_column(JSON, default=[])
     steps: Mapped[list] = mapped_column(JSON, default=[])
@@ -74,7 +75,7 @@ class Recipe(Base):
 
 
 class SourceSpan(Base):
-    """Provenance link: maps a recipe field to its OCR or vision-API source."""
+    """Provenance link: maps a recipe field to its OCR or LLM-Vision source."""
     __tablename__ = "source_spans"
 
     id: Mapped[UUID] = mapped_column(SQLAUUID, primary_key=True)
@@ -85,8 +86,7 @@ class SourceSpan(Base):
     bbox: Mapped[list] = mapped_column(JSON, nullable=False)
     ocr_confidence: Mapped[float] = mapped_column(Float, default=0.0)
     extracted_text: Mapped[str | None] = mapped_column(Text, nullable=True)
-    source_method: Mapped[str] = mapped_column(String(20), default="ocr")  # "ocr", "vision-api", or "user"
-    evidence: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    source_method: Mapped[str] = mapped_column(String(20), default="ocr")  # "ocr" or "llm-vision"
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
     __table_args__ = (

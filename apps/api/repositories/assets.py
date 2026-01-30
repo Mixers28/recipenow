@@ -24,6 +24,7 @@ class AssetRepository:
         sha256: str,
         storage_path: str,
         source_label: Optional[str] = None,
+        file_data: Optional[bytes] = None,
     ) -> MediaAsset:
         """
         Create a new MediaAsset.
@@ -33,6 +34,7 @@ class AssetRepository:
             sha256: Content hash
             storage_path: Path to stored file
             source_label: Optional label (e.g., 'Cookbook photo')
+            file_data: Raw file bytes (stored in DB for Railway compatibility)
         Returns:
             Created MediaAsset
         """
@@ -45,6 +47,7 @@ class AssetRepository:
             sha256=sha256,
             storage_path=storage_path,
             source_label=source_label,
+            file_data=file_data,
         )
         self.db.add(asset)
         self.db.commit()

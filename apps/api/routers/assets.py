@@ -182,13 +182,18 @@ async def upload_asset(
         file_bytes.seek(0)
         saved_path = storage.save(file_bytes, storage_path)
 
-        # Create MediaAsset record
+        # Read file data for DB storage (Railway ephemeral storage compatibility)
+        file_bytes.seek(0)
+        file_data_bytes = file_bytes.read()
+
+        # Create MediaAsset record (store file_data in DB for persistence)
         asset = repo.create(
             user_id=UUID(user_id),
             asset_type=asset_type,
             sha256=sha256,
             storage_path=saved_path if saved_path else storage_path,
             source_label=source_label,
+            file_data=file_data_bytes,
         )
 
         # Create initial recipe for this asset
@@ -280,6 +285,7 @@ def get_asset(asset_id: str, db: Session = Depends(get_session)):
     """
     Get asset file by ID.
     Returns the actual image/PDF file as binary data.
+    Tries DB storage first (persistent), falls back to disk (ephemeral).
     Args:
         asset_id: Asset UUID
     Returns:
@@ -292,13 +298,22 @@ def get_asset(asset_id: str, db: Session = Depends(get_session)):
         if not asset:
             raise HTTPException(status_code=404, detail="Asset not found")
 
-        # Retrieve file from storage
-        storage = get_storage_backend()
-        if not storage.exists(asset.storage_path):
-            logger.error(f"Asset file missing at {asset.storage_path}")
-            raise HTTPException(status_code=404, detail="Asset file missing on disk")
+        file_data = None
 
-        file_data = storage.get(asset.storage_path)
+        # Try to get from DB first (persistent storage for Railway)
+        if asset.file_data:
+            file_data = asset.file_data
+            logger.debug(f"Asset {asset_id} retrieved from database")
+        else:
+            # Fall back to disk storage (may not persist on Railway)
+            storage = get_storage_backend()
+            if storage.exists(asset.storage_path):
+                file_data = storage.get(asset.storage_path)
+                logger.debug(f"Asset {asset_id} retrieved from disk storage")
+
+        if not file_data:
+            logger.error(f"Asset file missing - not in DB or at {asset.storage_path}")
+            raise HTTPException(status_code=404, detail="Asset file not found")
 
         # Return as binary with appropriate content type
         media_type = "image/jpeg" if asset.type == "image" else "application/pdf"
