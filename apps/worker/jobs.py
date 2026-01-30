@@ -220,6 +220,7 @@ async def ingest_job(
 
             if recipe_id:
                 await extract_job(
+                    ctx,
                     asset_id=str(asset.id),
                     user_id=str(user_id or asset.user_id),
                     recipe_id=str(recipe_id),
