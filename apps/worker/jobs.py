@@ -480,7 +480,6 @@ async def extract_job(
                     user_id=asset_user_id,
                     title=recipe_data.get("title"),
                     servings=recipe_data.get("servings"),
-                    servings_estimate=recipe_data.get("servings_estimate"),
                     ingredients=recipe_data.get("ingredients", []),
                     steps=recipe_data.get("steps", []),
                     tags=recipe_data.get("tags", []),
@@ -491,7 +490,6 @@ async def extract_job(
             else:
                 recipe.title = recipe_data.get("title")
                 recipe.servings = recipe_data.get("servings")
-                recipe.servings_estimate = recipe_data.get("servings_estimate")
                 recipe.ingredients = recipe_data.get("ingredients", [])
                 recipe.steps = recipe_data.get("steps", [])
                 recipe.tags = recipe_data.get("tags", [])

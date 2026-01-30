@@ -22,7 +22,6 @@ class RecipeRepository:
         user_id: UUID,
         title: Optional[str] = None,
         servings: Optional[int] = None,
-        servings_estimate: Optional[dict] = None,
         ingredients: Optional[list] = None,
         steps: Optional[list] = None,
         tags: Optional[list] = None,
@@ -50,7 +49,6 @@ class RecipeRepository:
             user_id=user_id,
             title=title,
             servings=servings,
-            servings_estimate=servings_estimate,
             ingredients=ingredients or [],
             steps=steps or [],
             tags=tags or [],
@@ -146,7 +144,6 @@ class RecipeRepository:
         allowed_fields = {
             "title",
             "servings",
-            "servings_estimate",
             "ingredients",
             "steps",
             "tags",

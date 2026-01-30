@@ -877,7 +877,6 @@ def _populate_recipe_from_vision(db: Session, asset_id: str, recipe) -> None:
 
         recipe.title = recipe_data.get("title") or recipe.title
         recipe.servings = recipe_data.get("servings")
-        recipe.servings_estimate = recipe_data.get("servings_estimate")
         recipe.times = recipe_data.get("times", {})
         recipe.ingredients = recipe_data.get("ingredients", [])
         recipe.steps = recipe_data.get("steps", [])
