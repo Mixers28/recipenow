@@ -154,6 +154,8 @@ async def upload_asset(
         ocr_status = None
         warning = None
 
+        logger.info(f"ENABLE_ASYNC_JOBS={settings.ENABLE_ASYNC_JOBS}, REDIS_URL={'set' if settings.REDIS_URL else 'not set'}")
+
         if settings.ENABLE_ASYNC_JOBS:
             try:
                 from arq import create_pool
