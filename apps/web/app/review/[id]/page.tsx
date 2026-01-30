@@ -1,5 +1,7 @@
 /**
- * Recipe Review page - split view with image and editable form
+ * Recipe Review page
+ * - For verified recipes: Shows flip card (image front, recipe back)
+ * - For draft/needs_review: Shows edit form with tabs
  */
 'use client'
 
@@ -9,6 +11,7 @@ import { useRecipe } from '@/hooks/useRecipes'
 import { Tabs } from '@/components/Tabs'
 import { SourceSpan, Recipe, getAsset } from '@/lib/api'
 import { SkeletonImageViewer, SkeletonRecipeForm } from '@/components/SkeletonLoader'
+import { FlipRecipeCard } from '@/components/FlipRecipeCard'
 
 const ImageViewer = lazy(() => import('@/components/ImageViewer').then(m => ({ default: m.ImageViewer })))
 const RecipeForm = lazy(() => import('@/components/RecipeForm').then(m => ({ default: m.RecipeForm })))
@@ -26,6 +29,7 @@ export default function ReviewPage() {
   const [verifyError, setVerifyError] = useState<string>()
   const [imageUrl, setImageUrl] = useState<string>('')
   const [imageLoading, setImageLoading] = useState(false)
+  const [editMode, setEditMode] = useState(false)
 
   const { recipe, spans, fieldStatuses, loading, error, update, verify } = useRecipe(
     DEMO_USER_ID,
@@ -95,6 +99,7 @@ export default function ReviewPage() {
         setVerifyError(result.errors.join(', '))
       } else {
         setVerifyError(undefined)
+        setEditMode(false) // Exit edit mode on successful verify
       }
     } catch (err) {
       setVerifyError(err instanceof Error ? err.message : 'Failed to verify recipe')
@@ -122,19 +127,60 @@ export default function ReviewPage() {
     )
   }
 
+  // Show flip card for verified recipes (unless in edit mode)
+  const isVerified = recipe.status === 'verified'
+  const showCardView = isVerified && !editMode
+
+  if (showCardView) {
+    return (
+      <div className="space-y-4 py-4">
+        {/* Header */}
+        <div className="flex justify-between items-center max-w-2xl mx-auto">
+          <h1 className="text-xl font-bold text-gray-900">
+            {recipe.title || 'Recipe'}
+          </h1>
+          <a
+            href="/library"
+            className="text-sm text-gray-600 hover:text-gray-800"
+          >
+            ← Back to Library
+          </a>
+        </div>
+
+        {/* Flip Card */}
+        <FlipRecipeCard
+          recipe={recipe}
+          imageUrl={imageUrl}
+          onEdit={() => setEditMode(true)}
+        />
+      </div>
+    )
+  }
+
+  // Show edit form for draft/needs_review or when edit mode is active
   return (
     <div className="space-y-4">
       {/* Header */}
       <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold text-gray-900">
+        <h1 className="text-2xl font-bold text-gray-900">
           {recipe.title || 'Untitled Recipe'} - Review
         </h1>
-        <a
-          href="/library"
-          className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-        >
-          ← Back to Library
-        </a>
+        <div className="flex gap-2">
+          {editMode && (
+            <button
+              onClick={() => setEditMode(false)}
+              className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+            >
+              ← Back to Card
+            </button>
+          )}
+          <a
+            href="/library"
+            className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+          >
+            ← Library
+          </a>
+        </div>
       </div>
 
       {/* Verify error message */}
@@ -144,13 +190,13 @@ export default function ReviewPage() {
         </div>
       )}
 
-      {/* Tabbed View (All screen sizes) */}
+      {/* Tabbed View */}
       <div className="h-[calc(100vh-200px)]">
         <Tabs
           tabs={[
             {
               id: 'image',
-              label: '🖼️ Image',
+              label: 'Image',
               content: (
                 <div className="h-full overflow-hidden">
                   <Suspense fallback={<SkeletonImageViewer />}>
@@ -166,7 +212,7 @@ export default function ReviewPage() {
             },
             {
               id: 'form',
-              label: '📝 Recipe',
+              label: 'Recipe',
               content: (
                 <div className="h-full overflow-y-auto">
                   <Suspense fallback={<SkeletonRecipeForm />}>
@@ -192,9 +238,9 @@ export default function ReviewPage() {
       {/* Info Section */}
       <div className="mt-8 bg-blue-50 border border-blue-200 p-4 rounded-lg text-sm text-blue-900">
         <p>
-          <strong>💡 Tips:</strong> Click on any field in the form to highlight its location on the
-          image. Click on any bbox on the image to select that field. Edit fields as needed and click
-          "Save Changes" to update. When complete, click "Verify Recipe" to mark it as verified.
+          <strong>Tips:</strong> Click on any field in the form to highlight its location on the
+          image. Edit fields as needed and click "Save Changes" to update. When complete, click
+          "Verify Recipe" to mark it as verified.
         </p>
       </div>
     </div>
