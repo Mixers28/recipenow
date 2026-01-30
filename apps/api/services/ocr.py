@@ -181,7 +181,11 @@ class OCRService:
             
             # Step 3: Run OCR
             logger.debug(f"Running OCR on {ocr_image_path}")
-            result = self.ocr.ocr(ocr_image_path, cls=True)
+            try:
+                result = self.ocr.ocr(ocr_image_path, cls=True)
+            except TypeError as exc:
+                logger.warning("PaddleOCR cls arg unsupported; retrying without cls: %s", exc)
+                result = self.ocr.ocr(ocr_image_path)
             
             if isinstance(result, tuple) and result:
                 result = result[0]
