@@ -46,7 +46,7 @@ export function RecipeCard({ recipe, onEdit }: RecipeCardProps) {
                   <li key={index} className="leading-relaxed">
                     {typeof ingredient === 'string'
                       ? ingredient
-                      : ingredient.original_text || `${ingredient.quantity || ''} ${ingredient.unit || ''} ${ingredient.name || ''}`.trim()
+                      : ingredient.original_text || `${ingredient.quantity || ''} ${ingredient.unit || ''} ${ingredient.name_norm || ''}`.trim()
                     }
                   </li>
                 ))
@@ -66,7 +66,7 @@ export function RecipeCard({ recipe, onEdit }: RecipeCardProps) {
                 recipe.steps.map((step, index) => (
                   <li key={index} className="leading-relaxed">
                     <span className="font-semibold text-gray-800 mr-1">{index + 1}.</span>
-                    {typeof step === 'string' ? step : step.text || step.instruction || ''}
+                    {typeof step === 'string' ? step : step.text}
                   </li>
                 ))
               ) : (

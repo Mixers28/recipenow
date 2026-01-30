@@ -98,7 +98,7 @@ export function FlipRecipeCard({ recipe, imageUrl, onEdit }: FlipRecipeCardProps
                         <li key={index} className="leading-snug">
                           {typeof ingredient === 'string'
                             ? ingredient
-                            : ingredient.original_text || `${ingredient.quantity || ''} ${ingredient.unit || ''} ${ingredient.name || ''}`.trim()
+                            : ingredient.original_text || `${ingredient.quantity || ''} ${ingredient.unit || ''} ${ingredient.name_norm || ''}`.trim()
                           }
                         </li>
                       ))
@@ -118,7 +118,7 @@ export function FlipRecipeCard({ recipe, imageUrl, onEdit }: FlipRecipeCardProps
                       recipe.steps.map((step, index) => (
                         <li key={index} className="leading-snug">
                           <span className="font-semibold">{index + 1}.</span>{' '}
-                          {typeof step === 'string' ? step : step.text || step.instruction || ''}
+                          {typeof step === 'string' ? step : step.text}
                         </li>
                       ))
                     ) : (
