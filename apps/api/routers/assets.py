@@ -113,8 +113,58 @@ async def upload_asset(
                 title=f"Recipe from {file.filename}" if file.filename else "New Recipe",
                 status="draft",
             )
-            # Re-run OCR/parse to populate the new recipe using the existing asset
-            ocr_result = await _run_ocr_sync_with_timeout(db, str(existing.id))
+
+            # Re-run OCR/parse - use async jobs if enabled
+            job_id = None
+            ocr_status = None
+            warning = None
+
+            logger.info(f"Duplicate file - ENABLE_ASYNC_JOBS={settings.ENABLE_ASYNC_JOBS}")
+
+            if settings.ENABLE_ASYNC_JOBS:
+                try:
+                    from arq import create_pool
+                    from arq.connections import RedisSettings
+                    from urllib.parse import urlparse
+
+                    # Parse REDIS_URL into RedisSettings
+                    redis_url = urlparse(settings.REDIS_URL)
+                    redis_settings = RedisSettings(
+                        host=redis_url.hostname or "localhost",
+                        port=redis_url.port or 6379,
+                        password=redis_url.password,
+                        database=int(redis_url.path.lstrip("/")) if redis_url.path and redis_url.path != "/" else 0,
+                    )
+
+                    redis_pool = await create_pool(redis_settings)
+
+                    # Read file data from storage to pass to worker
+                    file_data = storage.load(existing.storage_path)
+
+                    job = await redis_pool.enqueue_job(
+                        "ingest_job",
+                        str(existing.id),
+                        False,
+                        str(user_id),
+                        str(recipe.id),
+                        file_data,  # Pass file bytes directly
+                        asset_type,
+                    )
+                    job_id = job.job_id if job else None
+                    ocr_status = "queued"
+                    logger.info(f"Duplicate asset: {existing.id}, queued async job: {job_id}")
+                except Exception as e:
+                    logger.warning(f"Failed to enqueue async job for duplicate, falling back to sync OCR: {e}")
+                    ocr_result = await _run_ocr_sync_with_timeout(db, str(existing.id))
+                    ocr_status = ocr_result.get("status")
+                    if not ocr_result.get("success"):
+                        warning = ocr_result.get("error")
+            else:
+                # Run OCR synchronously with timeout
+                ocr_result = await _run_ocr_sync_with_timeout(db, str(existing.id))
+                ocr_status = ocr_result.get("status")
+                if not ocr_result.get("success"):
+                    warning = ocr_result.get("error")
 
             return AssetUploadResponse(
                 asset_id=str(existing.id),
@@ -122,8 +172,9 @@ async def upload_asset(
                 storage_path=existing.storage_path,
                 sha256=existing.sha256,
                 source_label=existing.source_label,
-                ocr_status=ocr_result.get("status"),
-                warning=ocr_result.get("error") if not ocr_result.get("success") else None,
+                job_id=job_id,
+                ocr_status=ocr_status,
+                warning=warning,
             )
 
         # Store file
