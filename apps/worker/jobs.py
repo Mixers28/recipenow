@@ -303,8 +303,11 @@ async def extract_job(
 
             try:
                 vision_service = get_llm_vision_service()
+                logger.info(f"[DEBUG] Calling OpenAI Vision API for asset {asset_id}...")
                 vision_result = vision_service.extract_with_evidence(image_bytes, ocr_lines_payload)
+                logger.info(f"[DEBUG] Vision API returned: title={vision_result.get('title')}, ingredients={len(vision_result.get('ingredients', []))}, steps={len(vision_result.get('steps', []))}")
                 recipe_data = _vision_to_recipe_payload(vision_result)
+                logger.info(f"[DEBUG] Parsed recipe_data: title={recipe_data.get('title')}, ingredients={len(recipe_data.get('ingredients', []))}, steps={len(recipe_data.get('steps', []))}")
                 field_statuses = _build_field_statuses(recipe_data)
 
                 spans: list[dict] = []
@@ -397,6 +400,7 @@ async def extract_job(
                 for span in spans:
                     span["source_method"] = "ocr"
 
+            logger.info(f"[DEBUG] Starting recipe update for recipe_id={recipe_id}")
             recipe = db.query(Recipe).filter_by(id=UUID(recipe_id)).first() if recipe_id else None
             if not recipe:
                 recipe = Recipe(
@@ -450,7 +454,9 @@ async def extract_job(
                     )
                 )
 
+            logger.info(f"[DEBUG] Committing recipe {recipe.id} with {len(recipe_data.get('ingredients', []))} ingredients, {len(recipe_data.get('steps', []))} steps")
             db.commit()
+            logger.info(f"[DEBUG] Commit successful for recipe {recipe.id}")
             return {"status": "success", "recipe_id": str(recipe.id)}
 
         finally:
