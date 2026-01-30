@@ -46,18 +46,24 @@ export function FlipRecipeCard({ recipe, imageUrl, onEdit, onSetThumbnail }: Fli
               {imageUrl ? (
                 crop && crop.width > 0 && crop.height > 0 ? (
                   // Display cropped portion using overflow hidden container
+                  // Scale to cover the 4:5 container while showing only the crop area
                   <div className="w-full h-full overflow-hidden relative">
                     <img
                       src={imageUrl}
                       alt={recipe.title || 'Recipe image'}
-                      className="absolute"
+                      className="absolute object-cover"
                       style={{
-                        // Scale image so crop width matches container width
+                        // Calculate scale: container is 4:5 (0.8), crop ratio varies
+                        // Scale based on the dimension that needs more scaling to fill
+                        // For width-based: 100 / (crop.width/100) = 100 * 100 / crop.width
+                        // For height-based: 100 / (crop.height/100) = 100 * 100 / crop.height
+                        // The card is 4:5 (80% width:height), so we need to scale to cover
                         width: `${100 / (crop.width / 100)}%`,
-                        height: 'auto',
+                        height: `${100 / (crop.height / 100)}%`,
                         // Position so crop area is in view
                         left: `${-crop.x / (crop.width / 100)}%`,
-                        top: `${-crop.y / (crop.width / 100)}%`,
+                        top: `${-crop.y / (crop.height / 100)}%`,
+                        objectFit: 'cover',
                       }}
                     />
                   </div>
