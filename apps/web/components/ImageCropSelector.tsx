@@ -180,15 +180,20 @@ export function ImageCropSelector({
       {/* Preview */}
       <div className="bg-gray-50 rounded-lg p-4">
         <div className="text-sm font-medium text-gray-700 mb-2">Preview:</div>
-        <div className="w-32 h-32 mx-auto overflow-hidden rounded-lg shadow border border-gray-200">
-          <div
-            className="w-full h-full"
-            style={{
-              backgroundImage: `url(${imageUrl})`,
-              backgroundSize: `${100 / (crop.width / 100)}% ${100 / (crop.height / 100)}%`,
-              backgroundPosition: `${(crop.x / (100 - crop.width)) * 100}% ${(crop.y / (100 - crop.height)) * 100}%`,
-            }}
-          />
+        <div className="w-32 h-32 mx-auto overflow-hidden rounded-lg shadow border border-gray-200 relative">
+          {crop.width > 0 && crop.height > 0 && (
+            <img
+              src={imageUrl}
+              alt="Preview"
+              className="absolute"
+              style={{
+                width: `${100 / (crop.width / 100)}%`,
+                height: 'auto',
+                left: `${-crop.x / (crop.width / 100)}%`,
+                top: `${-crop.y / (crop.width / 100)}%`,
+              }}
+            />
+          )}
         </div>
       </div>
 

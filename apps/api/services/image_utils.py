@@ -6,7 +6,7 @@ import logging
 from io import BytesIO
 from typing import Tuple
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +40,19 @@ def resize_image_for_processing(
         original_format = img.format or "JPEG"
         original_size = img.size
         was_resized = False
+        was_rotated = False
+
+        # Apply EXIF orientation (rotate image based on camera orientation tag)
+        # This fixes images taken in portrait mode appearing rotated
+        try:
+            img_transposed = ImageOps.exif_transpose(img)
+            if img_transposed is not None:
+                if img_transposed.size != img.size:
+                    was_rotated = True
+                    logger.info(f"Applied EXIF transpose: {img.size} -> {img_transposed.size}")
+                img = img_transposed
+        except Exception as exif_err:
+            logger.warning(f"EXIF transpose failed (continuing): {exif_err}")
 
         # Convert RGBA to RGB if needed (for JPEG output)
         if img.mode in ('RGBA', 'P'):
@@ -72,6 +85,7 @@ def resize_image_for_processing(
             "original_size": original_size,
             "new_size": img.size,
             "was_resized": was_resized,
+            "was_rotated": was_rotated,
             "original_format": original_format,
             "output_format": "JPEG",
             "quality": quality,

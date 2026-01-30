@@ -44,16 +44,23 @@ export function FlipRecipeCard({ recipe, imageUrl, onEdit, onSetThumbnail }: Fli
           >
             <div className="aspect-[4/5] relative">
               {imageUrl ? (
-                crop ? (
-                  // Display cropped portion of image
-                  <div
-                    className="w-full h-full"
-                    style={{
-                      backgroundImage: `url(${imageUrl})`,
-                      backgroundSize: `${100 / (crop.width / 100)}% ${100 / (crop.height / 100)}%`,
-                      backgroundPosition: `${(crop.x / (100 - crop.width)) * 100}% ${(crop.y / (100 - crop.height)) * 100}%`,
-                    }}
-                  />
+                crop && crop.width > 0 && crop.height > 0 ? (
+                  // Display cropped portion using overflow hidden container
+                  <div className="w-full h-full overflow-hidden relative">
+                    <img
+                      src={imageUrl}
+                      alt={recipe.title || 'Recipe image'}
+                      className="absolute"
+                      style={{
+                        // Scale image so crop width matches container width
+                        width: `${100 / (crop.width / 100)}%`,
+                        height: 'auto',
+                        // Position so crop area is in view
+                        left: `${-crop.x / (crop.width / 100)}%`,
+                        top: `${-crop.y / (crop.width / 100)}%`,
+                      }}
+                    />
+                  </div>
                 ) : (
                   // No crop set - show full image
                   <img
