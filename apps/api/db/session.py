@@ -26,11 +26,13 @@ else:
 CONNECT_ARGS = {"prepare_threshold": None}
 
 # Create sync engine (for background jobs and CLI)
+# Lower pool size for Supabase free tier connection limits
 engine = create_engine(
     SYNC_DATABASE_URL,
     echo=os.getenv("SQL_ECHO", "false").lower() == "true",
-    pool_size=10,
-    max_overflow=20,
+    pool_size=5,
+    max_overflow=5,
+    pool_timeout=30,  # Wait up to 30s for a connection
     pool_pre_ping=True,  # Verify connections before using them
     pool_recycle=300,  # Recycle connections every 5 minutes to prevent prepared statement buildup
     connect_args=CONNECT_ARGS,
@@ -40,8 +42,9 @@ engine = create_engine(
 async_engine = create_async_engine(
     ASYNC_DATABASE_URL,
     echo=os.getenv("SQL_ECHO", "false").lower() == "true",
-    pool_size=10,
-    max_overflow=20,
+    pool_size=5,
+    max_overflow=5,
+    pool_timeout=30,  # Wait up to 30s for a connection
     pool_pre_ping=True,  # Verify connections before using them
     pool_recycle=300,  # Recycle connections every 5 minutes to prevent prepared statement buildup
     connect_args=CONNECT_ARGS,
@@ -90,14 +93,19 @@ async def get_async_db_session() -> AsyncGenerator[AsyncSession, None]:
         await session.close()
 
 
-def get_session() -> Session:
+def get_session() -> Generator[Session, None, None]:
     """
     Dependency for FastAPI endpoints to get a database session.
+    Properly closes the session after the request completes.
     Usage in endpoints:
         def my_endpoint(db: Session = Depends(get_session)):
             ...
     """
-    return SessionLocal()
+    session = SessionLocal()
+    try:
+        yield session
+    finally:
+        session.close()
 
 
 async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
