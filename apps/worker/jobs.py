@@ -311,7 +311,9 @@ async def extract_job(
     gc.collect()
     logger.info(f"Starting extract job for asset {asset_id} (memory cleaned)")
 
-    sys.path.insert(0, "/packages")
+    # Add packages and api code to path for imports
+    sys.path.insert(0, "/app/packages")
+    sys.path.insert(0, "/app/apps")
 
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
@@ -571,8 +573,9 @@ async def normalize_job(ctx, recipe_id: str) -> dict:
     import os
     import sys
 
-    # Add packages to path for imports
-    sys.path.insert(0, "/packages")
+    # Add packages and api code to path for imports
+    sys.path.insert(0, "/app/packages")
+    sys.path.insert(0, "/app/apps")
 
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
