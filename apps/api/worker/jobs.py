@@ -8,11 +8,30 @@ Implements the vision-primary ingestion pipeline per SPEC.md:
 """
 import json
 import logging
+import os
 import re
 from typing import Optional, Dict, List, Any
+from urllib.parse import urlparse
 from uuid import UUID
 
 logger = logging.getLogger(__name__)
+
+
+def _redis_settings_from_env():
+    try:
+        from arq.connections import RedisSettings
+    except ImportError as exc:
+        raise RuntimeError("ARQ RedisSettings is required for worker startup") from exc
+
+    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+    parsed = urlparse(redis_url)
+    db = int(parsed.path.lstrip("/")) if parsed.path and parsed.path != "/" else 0
+    return RedisSettings(
+        host=parsed.hostname or "localhost",
+        port=parsed.port or 6379,
+        password=parsed.password,
+        database=db,
+    )
 
 
 def _union_bboxes(bboxes: List[List[float]]) -> List[float]:
@@ -523,8 +542,8 @@ async def normalize_recipe(
     logger.info(f"Normalize Job: Starting for recipe {recipe_id}, user {user_id}")
     
     try:
-        db = SessionLocal()
-        try:
+    db = SessionLocal()
+    try:
             recipe = db.query(Recipe).filter(
                 Recipe.id == recipe_id,
                 Recipe.user_id == user_id,
@@ -566,8 +585,69 @@ async def normalize_recipe(
                 "message": f"Recipe normalized with {len(issues)} issues",
             }
         
-        finally:
-            db.close()
+    finally:
+        db.close()
+
+
+# ARQ compatibility wrappers (used by worker.jobs.WorkerSettings)
+async def ingest_job(
+    asset_id: str,
+    use_gpu: bool = False,
+    user_id: Optional[str] = None,
+    recipe_id: Optional[str] = None,
+    file_data: Optional[bytes] = None,
+    asset_type: str = "image",
+) -> Dict[str, Any]:
+    if not user_id or file_data is None:
+        return {"status": "failed", "error": "user_id and file_data are required"}
+    return await ingest_recipe(
+        asset_id=asset_id,
+        user_id=user_id,
+        file_data=file_data,
+        asset_type=asset_type,
+        recipe_id=recipe_id,
+    )
+
+
+async def extract_job(
+    asset_id: str,
+    user_id: str,
+    recipe_id: Optional[str] = None,
+    image_bytes: Optional[bytes] = None,
+) -> Dict[str, Any]:
+    return await extract_recipe(
+        asset_id=asset_id,
+        user_id=user_id,
+        recipe_id=recipe_id,
+        image_bytes=image_bytes,
+    )
+
+
+async def structure_job(
+    asset_id: str,
+    user_id: str,
+    recipe_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    return await structure_recipe(
+        asset_id=asset_id,
+        user_id=user_id,
+        recipe_id=recipe_id,
+    )
+
+
+async def normalize_job(
+    recipe_id: str,
+    user_id: str,
+) -> Dict[str, Any]:
+    return await normalize_recipe(recipe_id=recipe_id, user_id=user_id)
+
+
+class WorkerSettings:
+    redis_settings = _redis_settings_from_env()
+    functions = [ingest_job, extract_job, structure_job, normalize_job]
+    max_jobs = int(os.getenv("ARQ_MAX_JOBS", "10"))
+    job_timeout = int(os.getenv("ARQ_JOB_TIMEOUT", str(30 * 60)))
+    result_ttl = int(os.getenv("ARQ_RESULT_TTL", str(24 * 60 * 60)))
     
     except Exception as e:
         logger.error(f"Normalize Job failed for recipe {recipe_id}: {e}", exc_info=True)
