@@ -23,5 +23,8 @@ python-multipart==0.0.6
 python-dotenv==1.0.0
 httpx==0.27.0
 
+# Image Processing (resize large images to prevent worker memory issues)
+Pillow>=10.0.0
+
 # LLM Vision (OpenAI vision primary)
 openai>=1.63.0

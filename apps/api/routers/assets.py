@@ -19,8 +19,12 @@ from repositories.assets import AssetRepository
 from repositories.recipes import RecipeRepository
 from services.ocr import OCRLineData, get_ocr_service
 from services.storage import compute_sha256, get_storage_backend
+from services.image_utils import resize_image_for_processing, get_image_info
 
 logger = logging.getLogger(__name__)
+
+# Image resizing config
+MAX_IMAGE_DIMENSION = 2048  # Max width or height to prevent worker memory issues
 router = APIRouter()
 
 # OCR timeout in seconds - prevent Railway from killing the process
@@ -85,9 +89,24 @@ async def upload_asset(
 
         # Read file and compute hash
         file_content = await file.read()
-        from io import BytesIO
-
         file_bytes = BytesIO(file_content)
+
+        # Resize images to prevent worker memory issues
+        resize_metadata = None
+        if asset_type == "image":
+            original_info = get_image_info(file_bytes)
+            logger.info(f"Original image: {original_info}")
+
+            file_bytes, resize_metadata = resize_image_for_processing(
+                file_bytes,
+                max_dimension=MAX_IMAGE_DIMENSION,
+            )
+
+            if resize_metadata.get("was_resized"):
+                logger.info(
+                    f"Image resized: {resize_metadata['original_size']} -> {resize_metadata['new_size']}"
+                )
+
         sha256 = compute_sha256(file_bytes)
 
         storage = get_storage_backend()
