@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from db.models import PantryItem as ORMPantryItem
 from db.session import get_session
 from repositories.pantry import PantryRepository
-from worker.jobs import _extract_ingredient_name
+from services.ingredient_utils import extract_ingredient_name
 
 router = APIRouter(prefix="/pantry", tags=["pantry"])
 
@@ -139,7 +139,7 @@ def create_pantry_item(
         raise HTTPException(status_code=400, detail="Invalid user_id format")
 
     # Compute normalized name
-    name_norm = _extract_ingredient_name(item.name_original)
+    name_norm = extract_ingredient_name(item.name_original)
     if not name_norm:
         name_norm = item.name_original.lower().strip()
 
@@ -220,7 +220,7 @@ def update_pantry_item(
         raise HTTPException(status_code=404, detail="Pantry item not found")
 
     # Recompute name_norm if name_original changed
-    name_norm = _extract_ingredient_name(item.name_original)
+    name_norm = extract_ingredient_name(item.name_original)
     if not name_norm:
         name_norm = item.name_original.lower().strip()
 
