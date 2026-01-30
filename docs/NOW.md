@@ -6,17 +6,16 @@
 <!-- SUMMARY_START -->
 **Current Focus (auto-maintained by Agent):**
 - **Sprint 0-6 Complete:** Full V1 implementation delivered (scaffolding → OCR → CRUD → UI → pantry/match).
-- **Latest Fix (Jan 30, 2026):** Vision API Pipeline Debugging
-  - **Root Cause:** Worker `extract_job` had wrong sys.path, causing Vision API import to fail silently
-  - **Symptoms:** Recipe extraction showed wrong title, jumbled steps (OCR-only fallback was used)
+- **Latest Feature (Jan 30, 2026):** Meal Photo Selection & Thumbnail Crop
+  - **New Components:** ImageCropSelector (drag-to-crop), RecipeThumbnailCard (library grid)
   - **Fixes Applied:**
-    1. Added missing ORM columns (`servings_estimate`, `evidence`) to match DB migrations
-    2. Removed duplicate `apps/api/worker/` dead code (714 lines)
-    3. Created shared `services/ingredient_utils.py` module
-    4. Fixed sys.path in `extract_job` and `normalize_job` (`/app/packages` + `/app/apps`)
-  - **Commits:** 3b9cc9f, dfe6c14, 8ad2f31 (ready to push)
-- **Current Phase:** Deploy fixes, test Vision API extraction
-- **Next:** Push commits, verify correct recipe extraction, monitor worker logs
+    1. thumbnail_crop added to repository allowed_fields (was silently ignored)
+    2. EXIF orientation handling for rotated phone photos
+    3. Crop scaling to fill 4:5 card container
+    4. Mobile touch handling (touchAction: none + preventDefault)
+  - **Commits:** 846574a, b014cd3, e7b67d0, a56aa38, 2dd2da8, 5e8db33
+- **Current Phase:** Feature complete, ready to push
+- **Next:** Push commits, test on mobile, add more recipes
 <!-- SUMMARY_END -->
 
 ---
@@ -35,46 +34,40 @@ Execute RecipeNow V1 implementation per SPEC.md: 6 sprints covering scaffolding,
 
 ## What We Are Working On Right Now
 
-### Current Phase: Vision API Pipeline Fix Deployment
+### Current Phase: Meal Photo Selection Feature Complete
 
-**Status:** Critical bug found and fixed. Commits ready to push.
+**Status:** Feature implemented and tested. Ready to push.
 
-#### Session 15 Bug Fixes (Jan 30, 2026):
+#### Session 16 Features (Jan 30, 2026):
 
-**Root Cause Identified:** Vision API extraction was failing silently, causing fallback to OCR-only parser. The worker's `extract_job` had incorrect `sys.path` entries.
+**Meal Photo Selection:**
+- Users can select a crop area on uploaded recipe images to show just the meal photo
+- Drag-to-select interface with live preview
+- Mobile touch support with scroll prevention
 
-**Symptoms:**
-- Recipe title showing random OCR text ("alt and freshly ground black pepper")
-- Steps jumbled and incomplete
-- Ingredients missing quantities
+**New Components:**
+1. `ImageCropSelector` - Drag-to-select crop UI with percentage-based coordinates
+2. `RecipeThumbnailCard` - Library card showing cropped meal photo thumbnail
+3. `FlipRecipeCard` updates - Display cropped area filling 4:5 container
 
-**Fixes Applied:**
+**Bug Fixes:**
+1. **thumbnail_crop not saving** - Added to repository allowed_fields whitelist
+2. **Rotated images** - EXIF orientation handling via PIL ImageOps.exif_transpose
+3. **Crop not filling card** - Scale both width/height based on crop percentages
+4. **Mobile scroll issue** - touchAction: 'none' + preventDefault on touch handlers
 
-1. **Commit 3b9cc9f** - Add missing ORM columns and remove duplicate worker
-   - Added `servings_estimate` column to Recipe model
-   - Added `evidence` column to SourceSpan model
-   - Deleted `apps/api/worker/` directory (714 lines of duplicate dead code)
+#### Commits Ready:
+- `846574a` - fix: Handle EXIF orientation and improve crop display
+- `b014cd3` - fix: Add thumbnail_crop to allowed update fields in repository
+- `e7b67d0` - fix: Scale cropped image to fill recipe card container
+- `a56aa38` - fix: Show full image in crop selector for accurate preview
+- `2dd2da8` - fix: Prevent page scroll on mobile when drawing crop box
+- `5e8db33` - feat: Add thumbnail cards to library grid
 
-2. **Commit dfe6c14** - Move extract_ingredient_name to shared module
-   - Created `apps/api/services/ingredient_utils.py`
-   - Updated `pantry.py` to import from shared module
-   - Fixes `ModuleNotFoundError: No module named 'worker'`
-
-3. **Commit 8ad2f31** - Fix sys.path in extract_job and normalize_job
-   - Changed `/packages` → `/app/packages`
-   - Added missing `/app/apps` to path
-   - This was the **root cause** - Vision API imports were failing
-
-#### Current Status:
-- ✅ All fixes committed locally
-- ⏳ Ready to push: `git push origin main`
-- ⏳ After push: Railway will auto-deploy
-
-#### Verification Steps (after deploy):
-1. Upload a recipe image
-2. Check worker logs for `[Phase 2] Calling Vision API` (should NOT show "falling back to parser")
-3. Verify extracted recipe has correct title, ingredients, and steps
-4. Check that source_method shows "vision-api" not "ocr"
+#### Next Steps:
+1. Push commits: `git push origin main`
+2. Test crop feature on mobile devices
+3. Add more recipes to populate library
 
 ### Sprint 6 – Pantry & Match
 

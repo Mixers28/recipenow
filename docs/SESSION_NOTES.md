@@ -5,10 +5,10 @@
 
 <!-- SUMMARY_START -->
 **Latest Summary (auto-maintained by Agent):**
-- **Session 15 (Jan 30, 2026):** Major debugging session fixing Vision API extraction pipeline.
-- **Root Cause Found:** Worker `extract_job` had incorrect sys.path (`/packages` instead of `/app/packages` + `/app/apps`), causing Vision API imports to fail silently and fall back to OCR-only parser.
-- **Fixes Applied:** ORM columns added, duplicate code removed, shared utils created, sys.path fixed.
-- **Current Status:** All fixes committed (3b9cc9f, dfe6c14, 8ad2f31), ready to push. Vision API should now extract recipes correctly.
+- **Session 16 (Jan 30, 2026):** Meal photo selection and crop feature completed.
+- **Features Added:** Manual thumbnail crop selection, mobile touch support, library thumbnail grid.
+- **Key Fixes:** thumbnail_crop save, EXIF orientation, crop display scaling, mobile touch handling.
+- **Current Status:** All commits pushed. Recipe cards now show cropped meal photos.
 <!-- SUMMARY_END -->
 
 ---
@@ -44,6 +44,52 @@
 ---
 
 ## Recent Sessions (last 3-5)
+
+### 2026-01-30 (Session 16: Meal Photo Selection & Thumbnail Crop)
+
+**Participants:** User, Claude Opus 4.5
+**Branch:** main
+
+### What we worked on
+- **Feature:** Manual meal photo selection with drag-to-crop interface
+- **Bug Fix:** thumbnail_crop not saving (missing from repository allowed_fields)
+- **Bug Fix:** EXIF orientation handling for rotated phone photos
+- **Bug Fix:** Crop scaling to fill 4:5 recipe card container
+- **Bug Fix:** Mobile touch handling (page scrolling while drawing crop)
+- **Feature:** Library page thumbnail grid with cropped meal photos
+
+### Files touched
+- `apps/api/repositories/recipes.py` (added thumbnail_crop to allowed_fields)
+- `apps/api/services/image_utils.py` (EXIF orientation with ImageOps.exif_transpose)
+- `apps/web/components/ImageCropSelector.tsx` (NEW - drag-to-select crop UI)
+- `apps/web/components/FlipRecipeCard.tsx` (crop display with scaling)
+- `apps/web/components/RecipeThumbnailCard.tsx` (NEW - library thumbnail card)
+- `apps/web/app/library/page.tsx` (thumbnail grid layout)
+- `apps/web/app/review/[id]/page.tsx` (crop mode integration)
+- `apps/web/app/upload/page.tsx` (processing screen with polling)
+
+### Commits
+1. `846574a` - fix: Handle EXIF orientation and improve crop display
+2. `b014cd3` - fix: Add thumbnail_crop to allowed update fields in repository
+3. `e7b67d0` - fix: Scale cropped image to fill recipe card container
+4. `a56aa38` - fix: Show full image in crop selector for accurate preview
+5. `2dd2da8` - fix: Prevent page scroll on mobile when drawing crop box
+6. `5e8db33` - feat: Add thumbnail cards to library grid
+
+### Outcomes / Decisions
+- **Crop Coordinates:** Stored as percentage-based {x, y, width, height} in thumbnail_crop JSONB column
+- **Image Display:** Cropped area scales to fill 4:5 container using width/height percentages
+- **Mobile UX:** touchAction: 'none' + preventDefault() prevents scroll while cropping
+- **Library Grid:** 2x3x4 responsive grid with thumbnail cards showing cropped meal photos
+- **EXIF Handling:** Images rotated on upload via PIL ImageOps.exif_transpose()
+
+### Key Learnings
+- Repository allowed_fields whitelist silently ignores unlisted fields
+- object-cover CSS causes mismatch between visual selection and stored coordinates
+- Mobile touch events need both preventDefault and touch-action: none
+- Percentage-based crop coords work across responsive layouts
+
+---
 
 ### 2026-01-30 (Session 15: Vision API Pipeline Debugging)
 

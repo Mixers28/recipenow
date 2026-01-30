@@ -1,6 +1,52 @@
-# Implementation Progress - Vision-Primary Extraction
+# Implementation Progress - Sprint 2-3 + UI Enhancements
 
-**Status:** Core implementation complete; ready for testing.
+**Status:** Core implementation complete. Meal photo selection feature added.
+
+## Latest Updates (Session 16 - Jan 30, 2026)
+
+### Meal Photo Selection & Thumbnail Crop
+
+**New Feature:** Users can manually select a crop area on uploaded recipe images to display just the meal photo on recipe cards.
+
+#### New Components:
+- `ImageCropSelector.tsx` - Drag-to-select crop interface with:
+  - Percentage-based coordinates (x, y, width, height)
+  - Live preview showing 4:5 aspect ratio
+  - Mobile touch support (touchAction: none + preventDefault)
+  - Darkened overlay outside selection area
+
+- `RecipeThumbnailCard.tsx` - Library thumbnail card with:
+  - Cropped meal photo display
+  - Title overlay at bottom
+  - Status badge and delete button
+  - Lazy image loading from spans
+
+- `FlipRecipeCard.tsx` updates - Crop display with:
+  - Dynamic width/height scaling based on crop percentages
+  - Positioning to show only selected area
+  - Fills 4:5 container completely
+
+#### Bug Fixes:
+1. **thumbnail_crop not saving** - Added to `allowed_fields` in RecipeRepository.update()
+2. **EXIF orientation** - Added ImageOps.exif_transpose() in image_utils.py
+3. **Crop scaling** - Scale both dimensions independently to fill container
+4. **Mobile touch** - Prevent page scroll while drawing crop box
+
+#### Database:
+- `thumbnail_crop` JSONB column added via migration 005
+- Stores: `{x: number, y: number, width: number, height: number}` (percentages 0-100)
+
+#### Files Modified:
+- `apps/api/repositories/recipes.py` - Added thumbnail_crop to allowed_fields
+- `apps/api/services/image_utils.py` - EXIF orientation handling
+- `apps/web/components/ImageCropSelector.tsx` - NEW
+- `apps/web/components/RecipeThumbnailCard.tsx` - NEW
+- `apps/web/components/FlipRecipeCard.tsx` - Crop display
+- `apps/web/app/library/page.tsx` - Thumbnail grid (2x3x4)
+- `apps/web/app/review/[id]/page.tsx` - Crop mode
+- `apps/web/app/upload/page.tsx` - Processing screen with polling
+
+---
 
 ## What Was Implemented
 
@@ -26,7 +72,7 @@
 
 **SourceSpan Model:**
 - Added `source_method: Mapped[str] = mapped_column(String(20), default="ocr")`
-- Enables tracking of extraction source ("ocr" or "vision-api")
+- Enables tracking of extraction source ("ocr" or "llm-vision")
 - Facilitates audit trails and source attribution
 
 **Migration File:** [infra/migrations/002_add_source_method.sql](../infra/migrations/002_add_source_method.sql)
@@ -35,24 +81,31 @@
 - Creates indexes on source_method and (recipe_id, source_method)
 - Column documentation for team reference
 
+### 3. LLM Vision Service (Ollama Integration)
 **File:** [apps/api/services/llm_vision.py](../apps/api/services/llm_vision.py) (New)
 
 **LLMVisionService Class:**
-- OpenAI Vision API primary extraction (no local/self-hosted LLMs)
+- Offline-first design: Ollama + LLaVA-7B as primary
+- Optional cloud fallback: Claude 3 Haiku or GPT-4 Vision
 - Configuration via environment variables:
-  - `OPENAI_API_KEY`: Required API key
-  - `VISION_MODEL`: Vision model name (e.g., `gpt-4o-mini`)
-  - `VISION_MAX_OUTPUT_TOKENS`: Output token cap
-  - `VISION_STRICT_JSON`: Enforce strict JSON
+  - `OLLAMA_HOST`: Ollama server URL (default: http://localhost:11434)
+  - `OLLAMA_MODEL`: Model identifier (default: llava:7b)
+  - `LLM_FALLBACK_ENABLED`: Enable cloud fallback (default: true)
+  - `LLM_FALLBACK_PROVIDER`: Cloud provider (claude or openai)
+  - `LLM_FALLBACK_API_KEY`: API key for cloud provider
 
 **Key Methods:**
-- `extract_with_evidence(image_data: bytes, ocr_lines: list) -> dict`: Vision extraction with OCR evidence
-- `extract_recipe_from_image(image_data: bytes) -> dict`: Convenience wrapper
+- `extract_recipe_from_image(image_data: bytes) -> dict`: Vision-based recipe extraction
+- `_extract_via_ollama(image_data)`: Offline extraction using Ollama + LLaVA
+- `_extract_via_claude(image_data)`: Cloud fallback using Claude 3 Haiku
+- `_extract_via_openai(image_data)`: Cloud fallback using GPT-4 Vision
+- `_parse_json_response(response_text)`: Robust JSON extraction from LLM response
 
 **Extraction Prompt:**
-- Instructs vision model to read visible text only (no inference)
-- Extracts: title, ingredients, steps, servings, times
-- Returns strict JSON with `evidence_ocr_line_ids`
+- Instructs LLM to read visible text (not infer or guess)
+- Extracts: title, ingredients, steps, servings, times, cuisine, dietary notes
+- Returns only fields clearly readable from image
+- JSON structured response for easy parsing
 
 ### 4. Job Implementation Suite
 **File:** [apps/api/worker/jobs.py](../apps/api/worker/jobs.py) (Enhanced)
@@ -62,15 +115,16 @@
 2. Detects and corrects image orientation (Tesseract voting)
 3. Runs OCR (PaddleOCR)
 4. Creates Asset and OCRLines in database
-5. Queues Extract Job
+5. Queues Structure Job
 - Returns: Status, asset_id, ocr_line_count
 
-**Extract Job:** `async extract_recipe(asset_id, user_id, recipe_id=None)`
+**Structure Job:** `async structure_recipe(asset_id, user_id, recipe_id=None)`
 1. Fetches OCR lines from asset
-2. Runs OpenAI Vision extraction (primary)
-3. Builds SourceSpans from OCR evidence IDs
-4. Falls back to deterministic parser only if vision extraction fails
-5. Tags extracted fields with `source_method="vision-api"`
+2. Runs deterministic parser (RecipeParser)
+3. Checks for critical fields (title, ingredients, steps)
+4. **If missing:** Invokes LLM vision fallback
+5. Merges LLM results with OCR data
+6. Tags merged fields with `source_method="llm-vision"`
 7. Creates Recipe and SourceSpans with provenance
 8. Queues Normalize Job
 - Returns: Status, recipe_id, field_statuses
@@ -84,8 +138,8 @@
 - Returns: Status, quality_issues
 
 **Helper Functions:**
-- `_build_span_from_evidence(...)`: Computes bbox from OCR line evidence
-- `_vision_to_recipe_payload(...)`: Normalizes vision JSON to recipe payload
+- `_check_missing_critical_fields(recipe)`: Identifies missing critical fields
+- `_merge_llm_fallback(ocr_result, llm_result, missing_critical)`: Merges results preserving OCR priority
 - `_parse_time_to_minutes(time_str)`: Parses time strings (e.g., "1 hour 30 min" → 90)
 - `_deduplicate_ingredients(ingredients)`: Removes duplicate ingredients
 - `_normalize_times(times)`: Ensures time values are valid positive integers
@@ -96,7 +150,9 @@
 **File:** [apps/api/requirements.txt](../apps/api/requirements.txt)
 
 **Added:**
-- `openai>=1.63.0`: OpenAI client (vision primary)
+- `httpx==0.27.0`: HTTP client for Ollama API calls
+- `anthropic==0.21.0`: Claude API client (optional for cloud fallback)
+- `openai==1.30.0`: OpenAI client (optional for cloud fallback)
 
 ## Architecture Overview
 
@@ -108,10 +164,13 @@ Ingest Job
     ├─ Detect rotation (Tesseract PSM 0)
     └─ Run OCR (PaddleOCR on rotated image)
     ↓
-Extract Job
-    ├─ Vision extraction (OpenAI, primary)
-    ├─ Build spans from OCR evidence IDs
-    └─ Fallback to deterministic parser only on vision failure
+Structure Job
+    ├─ Parse OCR (deterministic parser)
+    ├─ Check critical fields (title, ingredients, steps)
+    ├─ If missing: LLM fallback (Ollama + LLaVA-7B)
+    │   ├─ If Ollama fails: Cloud fallback (Claude/OpenAI)
+    │   └─ Tag results with source_method="llm-vision"
+    └─ Merge LLM + OCR results
     ↓
 Normalize Job
     ├─ Deduplicate ingredients
@@ -124,22 +183,24 @@ Recipe Ready (draft → review)
 ## Key Design Decisions
 
 1. **Vision Reader, Not Inference Engine**
-   - Vision model reads visible text only
+   - LLM is strictly for reading visible text (fallback when OCR fails)
    - Does not infer missing ingredients, guess cooking methods, etc.
    - Maintains "source-of-truth" invariant (all data comes from uploaded media)
 
-2. **Hosted Vision Only**
-   - OpenAI Vision API is primary (no local/self-hosted LLMs)
-   - OCR supplies line evidence for bbox provenance
+2. **Offline-First LLM**
+   - Ollama + LLaVA-7B as primary (4.5 GB, local self-hosted)
+   - Cloud APIs as optional fallback only
+   - Reduces dependency on external services, improves privacy
 
 3. **Provenance Tracking**
-   - `source_method` field tracks extraction source (ocr vs vision-api)
+   - `source_method` field tracks extraction source (ocr vs llm-vision)
    - SourceSpans provide pixel-level audit trail
-   - UI badges show source of each field (blue=OCR, purple=Vision, green=user, red=missing)
+   - UI badges show source of each field (blue=OCR, purple=LLM, green=user, red=missing)
 
-4. **Fallback Strategy**
-   - Deterministic parser used only if vision extraction fails
-   - OCR data preserved for provenance
+4. **Non-Overwriting Merge Strategy**
+   - LLM results fill missing critical fields only
+   - Never overwrites existing OCR data
+   - Preserves OCR extraction as primary source
 
 5. **Confident Rotation Detection**
    - Uses 3 thresholding methods + confidence voting
@@ -150,11 +211,14 @@ Recipe Ready (draft → review)
 
 - [ ] Rotation detection with 4 test images (0°, 90°, 180°, 270°)
 - [ ] OCR extraction on rotated vs unrotated images
-- [ ] Vision extraction with OpenAI (image + OCR evidence IDs)
+- [ ] LLM fallback with Ollama + LLaVA-7B (offline)
+- [ ] LLM fallback with Claude 3 Haiku (cloud)
+- [ ] LLM fallback with GPT-4 Vision (cloud)
+- [ ] Merge logic: LLM fills missing title, ingredients, steps
 - [ ] Source attribution: SourceSpan.source_method correctly tagged
 - [ ] Review UI badges: Display source of each field
 - [ ] Database migration: source_method column added successfully
-- [ ] End-to-end: Upload → Ingest → Extract → Normalize → Ready for review
+- [ ] End-to-end: Upload → Ingest → Structure → Normalize → Ready for review
 
 ## Known Limitations
 
@@ -168,8 +232,13 @@ Recipe Ready (draft → review)
    - For rotation detection only (PSM 0)
    - PaddleOCR remains primary OCR engine
 
-3. **JSON Parsing Brittleness**
-   - Vision API responses sometimes have JSON embedded in text
+3. **Ollama Model Size**
+   - LLaVA-7B is 4.5 GB
+   - Requires adequate disk/memory for self-hosted deployment
+   - Cloud fallback recommended if resources limited
+
+4. **JSON Parsing Brittleness**
+   - LLM responses sometimes have JSON embedded in text
    - Regex fallback for extracting JSON blocks
    - May fail on very unstructured responses (rare for vision task)
 
@@ -178,23 +247,26 @@ Recipe Ready (draft → review)
 1. **End-to-End Testing**
    - Test with real recipe card images
    - Validate rotation detection on OCR failures
-   - Verify vision extraction populates title, ingredients, steps
+   - Verify LLM fallback fills missing fields
 
 2. **UI Integration**
    - Implement source badges in RecipeForm component
-   - Display OCR→Vision→User flow
+   - Display OCR→LLM→User flow
    - Allow users to override auto-extracted fields
 
 3. **Performance Optimization**
-   - Batch vision requests if multiple assets pending
+   - Cache Ollama responses (same recipe card images)
+   - Batch LLM requests if multiple assets pending
+   - Monitor API latency (both Ollama and cloud)
 
 4. **Configuration Hardening**
    - Environment variable validation at startup
-   - Graceful degradation if Vision API unavailable
+   - Graceful degradation if LLM unavailable
    - Clear error messages for misconfiguration
 
 5. **Documentation**
-   - Vision configuration options reference
+   - Add Ollama setup guide to DEPLOYMENT_SETUP.md
+   - LLM configuration options reference
    - Troubleshooting guide for common issues
 
 ## Files Modified
@@ -202,9 +274,9 @@ Recipe Ready (draft → review)
 - `apps/api/services/ocr.py` - Rotation detection integration
 - `apps/api/db/models.py` - Added source_method field
 - `apps/api/worker/jobs.py` - Complete job suite implementation
-- `apps/api/requirements.txt` - Added OpenAI dependency
+- `apps/api/requirements.txt` - Added LLM dependencies
 - `infra/migrations/002_add_source_method.sql` - Database schema
-- `apps/api/services/llm_vision.py` - NEW: Vision extraction service
+- `apps/api/services/llm_vision.py` - NEW: LLM vision service
 
 ## Remaining Sprints
 
@@ -216,4 +288,4 @@ Recipe Ready (draft → review)
 
 *Implementation by: Architect + Coder Agent*  
 *Date: Sprint 2-3 completion*  
-*SPEC.md Version: V1.1 (vision-primary)*
+*SPEC.md Version: 2.1 (with OCR enhancement + LLM fallback)*
