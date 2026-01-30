@@ -246,21 +246,32 @@ async def ingest_job(
                 db.add(ocr_line)
 
             db.commit()
-            logger.info(f"Stored {len(ocr_lines_data)} OCR lines for asset {asset_id}")
+            line_count = len(ocr_lines_data)
+            logger.info(f"Stored {line_count} OCR lines for asset {asset_id}")
 
+            # Clear OCR references to free memory before queueing extract job
+            del ocr_lines_data
+            del ocr_service
+            import gc
+            gc.collect()
+            logger.info("Freed OCR memory")
+
+            # Queue extract_job as separate job to allow memory cleanup between jobs
             if recipe_id:
-                await extract_job(
-                    ctx,
-                    asset_id=str(asset.id),
-                    user_id=str(user_id or asset.user_id),
-                    recipe_id=str(recipe_id),
-                    image_bytes=file_data,
+                logger.info(f"Queueing extract_job for recipe {recipe_id}")
+                # Use ctx["redis"] to enqueue the next job
+                await ctx["redis"].enqueue_job(
+                    "extract_job",
+                    str(asset.id),
+                    str(user_id or asset.user_id),
+                    str(recipe_id),
+                    file_data,  # Pass image bytes to avoid re-reading from storage
                 )
 
             return {
                 "status": "success",
                 "asset_id": asset_id,
-                "line_count": len(ocr_lines_data),
+                "line_count": line_count,
             }
 
         finally:
@@ -291,9 +302,14 @@ async def extract_job(
     2. Make the Vision API call (no DB connection held)
     3. Open session 2 to save the results
     """
+    import gc
     import os
     import sys
     from uuid import uuid4
+
+    # Force garbage collection to free any leftover memory from previous jobs
+    gc.collect()
+    logger.info(f"Starting extract job for asset {asset_id} (memory cleaned)")
 
     sys.path.insert(0, "/packages")
 
@@ -304,8 +320,6 @@ async def extract_job(
     from api.services.llm_vision import get_llm_vision_service
     from api.services.parser import RecipeParser, OCRLineData
     from api.services.storage import get_storage_backend
-
-    logger.info(f"Starting extract job for asset {asset_id}")
 
     try:
         db_url = os.getenv("DATABASE_URL", "postgresql://recipenow:recipenow@postgres:5432/recipenow")
