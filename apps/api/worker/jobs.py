@@ -200,6 +200,7 @@ def _extract_ingredient_name(original_text: str) -> Optional[str]:
 
 
 async def ingest_recipe(
+    ctx: dict,
     asset_id: str,
     user_id: str,
     file_data: bytes,

@@ -62,6 +62,7 @@
 1. [DEPLOYMENT_CHECKLIST.md](DEPLOYMENT_CHECKLIST.md) - Step-by-step deployment
 2. [QUICK_START.md](QUICK_START.md) - System dependency installation
 3. `infra/migrations/002_add_source_method.sql` - Database migration
+4. `infra/migrations/003_add_evidence_servings_estimate.sql` - DB migration (evidence + servings_estimate)
 
 ---
 

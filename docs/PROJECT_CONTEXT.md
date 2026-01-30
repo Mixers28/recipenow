@@ -10,7 +10,7 @@
 - **Deployment:** Railway (backend + worker, live) + Vercel (frontend, live). Docker Compose for local dev.
 - **Auth:** Multi-user with JWT tokens and user-scoped data isolation.
 - **Provenance:** SourceSpan.source_method field tracks OCR vs vision-api attribution per field.
-- **Status:** All 6 sprints complete, deployed to production, 3 hotfixes applied and merged (c31ab5b, 4217ff1, 653952d), system stable.
+- **Status:** All 6 sprints complete; production stabilized with additional hotfixes for async jobs, OCR, and worker deployment.
 <!-- SUMMARY_END -->
 
 ---
@@ -55,6 +55,7 @@
   - **Role:** Vision reads visible text only (no inference/hallucination)
 - **Auth:** Multi-user with JWT tokens; user-scoped data isolation (user_id foreign key on all assets/recipes/pantry).
 - **Deployment:** Railway (backend API + worker, LIVE), Vercel (Next.js frontend, LIVE), Docker Compose (local development).
+- **Database:** Supabase Postgres (pooler URL in Railway `DATABASE_URL`).
 - **Storage:** MinIO (configured in docker-compose; default for local dev).
 - **Parsing:** Vision-primary extraction + deterministic parser fallback only on vision failure. No inference or guessing.
 - **Data integrity rules:**
@@ -86,7 +87,7 @@
 
 **Code Changes:** OCRService + LLMVisionService (OpenAI) + job pipeline enhancements + database migration + API response schema update.
 
-**Production Status:** Deployed (f4269ba), 3 hotfixes applied (c31ab5b, 4217ff1, 653952d), system stable.
+**Production Status:** Deployed (f4269ba) with follow-on fixes (worker ARQ entrypoints, OCR compatibility, Supabase migration 003) and active monitoring.
 
 ---
 
@@ -118,3 +119,5 @@ Use this section for **big decisions** only:
 - `2026-01-09` - **Deployment:** Decided on Railway (backend + worker) + Vercel (frontend) for production; Docker Compose for local dev.
 - `2026-01-09` - **LLM for Block Classification:** Deferred to Sprint 3; V1 uses deterministic heuristics only.
 - `2026-01-09` - **Context7 Library Versions:** Locked FastAPI 0.128.0, Next.js 16.1.0, psycopg 3.3.2, ARQ 0.26.3, PaddleOCR 3.3.2.
+- `2026-01-30` - **Prod DB:** Supabase Postgres is the production DB; Railway services connect via `DATABASE_URL` pooler.
+- `2026-01-30` - **Worker Build:** Worker image builds from repo root with Dockerfile path `apps/worker/Dockerfile` to include shared packages.

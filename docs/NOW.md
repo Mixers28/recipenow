@@ -9,14 +9,9 @@
 - **Sprint 2-3: OCR Enhancement Complete:** OCR rotation detection + OpenAI Vision extraction (primary) implemented and deployed.
   - Tesseract PSM 0 rotation detection with 3-method voting (99% accuracy)
   - SourceSpan.source_method field for provenance tracking
-- **Production Status:** Deployed to Railway backend, Vercel frontend. Four hotfixes applied.
-- **Latest Fix (Jan 27, 2026):** OCR Timeout & Async Jobs Implementation
-  - Issue: 500 errors on upload due to OCR timeouts (SIGTERM kills)
-  - Solution 1: Added 90-second timeout wrapper with graceful degradation
-  - Solution 2: Enhanced async job support with Redis/ARQ (background processing)
-  - Result: Assets saved even on timeout; comprehensive Railway setup guide created
-- **Current Phase:** Production support + monitoring. Async jobs ready for Railway enablement.
-- **Next:** Enable async jobs in Railway, QA testing, database migration, Sprint 5 UI badges.
+- **Production Status:** Deployed to Railway backend, Vercel frontend. Hotfixes applied for async jobs, OCR compatibility, and worker deployment.
+- **Current Phase:** Production support + monitoring; async jobs enabled with Redis + worker.
+- **Next:** Verify worker ingestion + vision extraction end-to-end; run QA suite; implement UI badges.
 <!-- SUMMARY_END -->
 
 ---
@@ -72,21 +67,16 @@ Execute RecipeNow V1 implementation per SPEC.md: 6 sprints covering scaffolding,
 - ✅ Production monitoring: Watching for additional errors
 
 #### Pending Tasks:
-- ⚠️ **URGENT:** Enable async jobs in Railway (follow docs/RAILWAY_ASYNC_JOBS_SETUP.md)
-- 🔄 Database migration application (infra/migrations/002_add_source_method.sql)
+- 🔄 Confirm worker processes ingest/extract jobs without errors (Redis auth, OCR deps, imports).
 - 🔄 QA test suite execution per docs/TESTING_GUIDE.md
 - 🔄 UI badge implementation (Sprint 5)
 - 🔄 End-to-end testing with rotated recipe images
 
 #### Next Steps:
-1. **Enable async jobs in Railway** (top priority to fix 500 errors)
-   - Add Redis service to Railway project
-   - Set ENABLE_ASYNC_JOBS=true environment variable
-   - Deploy ARQ worker service (optional but recommended)
-2. Monitor upload performance and success rates
-3. Apply database migration to production once tested
-4. Execute QA testing per TESTING_GUIDE.md (rotation detection, vision extraction, full pipeline)
-5. Implement Sprint 5 UI badges (color-coded source attribution)
+1. **Verify worker ingestion/extract** in Railway (check worker logs for ingest/extract success).
+2. Monitor upload performance and success rates.
+3. Execute QA testing per TESTING_GUIDE.md (rotation detection, vision extraction, full pipeline).
+4. Implement Sprint 5 UI badges (color-coded source attribution).
 
 ### Sprint 6 – Pantry & Match
 

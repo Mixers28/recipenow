@@ -8,10 +8,11 @@
 - **All Sprints Complete:** Full V1 RecipeNow system implemented and deployed (scaffolding → OCR → parsing → CRUD → UI → pantry/match).
 - **Sprint 2-3: OCR Enhancement Complete (Jan 25, 2026):** OCR rotation detection + vision-primary extraction (OpenAI) fully integrated.
 - **Vision-Primary Alignment (Jan 30, 2026):** OpenAI Vision API is primary; local/self-hosted LLM docs deprecated; env/docs updated.
+- **Production Ops Fixes (Jan 30, 2026):** Applied Supabase migration 003 (servings_estimate + evidence), fixed ARQ worker entrypoints, OCR cls-arg compatibility, Redis auth via REDIS_URL, and worker Dockerfile deps/paths.
 - **Implementation Delivered:** 5 production code files + 8 documentation guides (1000+ KB); Initial commit f4269ba.
 - **Production Hotfixes:** Three critical fixes applied and deployed (c31ab5b, 4217ff1, 653952d) — requirements formatting, openai version conflict, SourceSpan field mapping.
 - **Current Status:** Railway backend + Vercel frontend operational. All endpoints tested. System stable and monitoring.
-- **Outstanding:** Database migration (awaiting prod testing), QA test suite execution, Sprint 5 UI badges.
+- **Outstanding:** QA test suite execution, Sprint 5 UI badges, confirm worker ingest/extract end-to-end.
 <!-- SUMMARY_END -->
 
 ---
@@ -47,6 +48,30 @@
 ---
 
 ## Recent Sessions (last 3-5)
+
+### 2026-01-30 (Session 13: Production Ops Fixes)
+
+**Participants:** User, Codex Agent  
+**Branch:** main
+
+### What we worked on
+- Diagnosed Supabase schema mismatch and applied migration 003 (servings_estimate + evidence).
+- Fixed ARQ worker entrypoints (WorkerSettings + ctx signatures) and Redis auth parsing via `REDIS_URL`.
+- Added PaddleOCR compatibility fallback for `cls` arg.
+- Added OCR deps to worker requirements and system libs to worker Dockerfile.
+- Updated worker image to include `packages/` and `apps/api` for schema imports.
+
+### Files touched
+- `apps/api/worker/jobs.py`, `apps/worker/jobs.py`, `apps/worker/worker.py`
+- `apps/api/services/ocr.py`
+- `apps/api/requirements-worker.txt`
+- `apps/worker/Dockerfile`
+- `infra/migrations/003_add_evidence_servings_estimate.sql`
+
+### Outcomes / Decisions
+- **Supabase:** Production DB is Supabase Postgres; migrations must run in Supabase.
+- **Worker deploy:** Worker image must be built from repo root with Dockerfile path `apps/worker/Dockerfile`.
+- **Redis:** Use `REDIS_URL` with password; no `redis:6379` fallback in production.
 
 ### 2026-01-30 (Session 12: Vision-Primary OpenAI Alignment)
 
