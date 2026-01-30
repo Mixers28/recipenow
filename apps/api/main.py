@@ -32,10 +32,25 @@ app = FastAPI(
     redirect_slashes=False,  # Disable trailing slash redirects that cause HTTPS->HTTP downgrade
 )
 
-# Initialize database schema on startup
-logger.info("Initializing database schema...")
-Base.metadata.create_all(bind=engine)
-logger.info("✅ Database schema initialized")
+# Initialize database schema on startup with retries
+def init_db_schema(max_retries: int = 3, retry_delay: int = 5) -> None:
+    """Initialize database schema with retries for transient connection issues."""
+    for attempt in range(max_retries):
+        try:
+            logger.info(f"Initializing database schema (attempt {attempt + 1}/{max_retries})...")
+            Base.metadata.create_all(bind=engine)
+            logger.info("✅ Database schema initialized")
+            return
+        except Exception as e:
+            if attempt < max_retries - 1:
+                logger.warning(f"DB init failed: {e}. Retrying in {retry_delay}s...")
+                time.sleep(retry_delay)
+            else:
+                logger.error(f"DB init failed after {max_retries} attempts: {e}")
+                # Continue anyway - tables may already exist
+                logger.info("Continuing without schema init (tables may already exist)")
+
+init_db_schema()
 
 # Log OCR dependency status
 _log_ocr_dependency()
