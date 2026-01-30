@@ -144,6 +144,7 @@ except ImportError:
 
 
 async def ingest_job(
+    ctx,
     asset_id: str,
     use_gpu: bool = False,
     user_id: Optional[str] = None,
@@ -242,6 +243,7 @@ async def ingest_job(
 
 
 async def extract_job(
+    ctx,
     asset_id: str,
     user_id: str,
     recipe_id: Optional[str] = None,
@@ -457,7 +459,7 @@ async def extract_job(
         return {"status": "failed", "error": str(e)}
 
 
-async def structure_job(asset_id: str) -> dict:
+async def structure_job(ctx, asset_id: str) -> dict:
     """
     Legacy structure job retained for compatibility.
     Delegates to vision-primary extract job.
@@ -466,7 +468,7 @@ async def structure_job(asset_id: str) -> dict:
     return await extract_job(asset_id=asset_id, user_id="", recipe_id=None)
 
 
-async def normalize_job(recipe_id: str) -> dict:
+async def normalize_job(ctx, recipe_id: str) -> dict:
     """
     Normalize job: Compute name_norm for ingredients without altering original_text.
     Args:
