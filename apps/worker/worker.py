@@ -2,6 +2,7 @@
 ARQ Worker for RecipeNow background jobs (OCR, parsing, normalization).
 """
 import os
+from urllib.parse import urlparse
 
 from arq.connections import RedisSettings
 
@@ -12,11 +13,22 @@ class WorkerSettings:
     """ARQ Worker configuration."""
 
     # Redis connection settings
-    redis_settings = RedisSettings(
-        host=os.getenv("REDIS_HOST", "redis"),
-        port=int(os.getenv("REDIS_PORT", 6379)),
-        database=int(os.getenv("REDIS_DB", 0)),
-    )
+    _redis_url = os.getenv("REDIS_URL")
+    if _redis_url:
+        _parsed = urlparse(_redis_url)
+        _db = int(_parsed.path.lstrip("/")) if _parsed.path and _parsed.path != "/" else 0
+        redis_settings = RedisSettings(
+            host=_parsed.hostname or "redis",
+            port=_parsed.port or 6379,
+            password=_parsed.password,
+            database=_db,
+        )
+    else:
+        redis_settings = RedisSettings(
+            host=os.getenv("REDIS_HOST", "redis"),
+            port=int(os.getenv("REDIS_PORT", 6379)),
+            database=int(os.getenv("REDIS_DB", 0)),
+        )
 
     # Worker function imports
     functions = [
