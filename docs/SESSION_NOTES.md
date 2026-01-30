@@ -5,14 +5,11 @@
 
 <!-- SUMMARY_START -->
 **Latest Summary (auto-maintained by Agent):**
-- **All Sprints Complete:** Full V1 RecipeNow system implemented and deployed (scaffolding → OCR → parsing → CRUD → UI → pantry/match).
-- **Sprint 2-3: OCR Enhancement Complete (Jan 25, 2026):** OCR rotation detection + vision-primary extraction (OpenAI) fully integrated.
-- **Vision-Primary Alignment (Jan 30, 2026):** OpenAI Vision API is primary; local/self-hosted LLM docs deprecated; env/docs updated.
-- **Production Ops Fixes (Jan 30, 2026):** Applied Supabase migration 003 (servings_estimate + evidence), fixed ARQ worker entrypoints, OCR cls-arg compatibility, Redis auth via REDIS_URL, and worker Dockerfile deps/paths.
-- **Implementation Delivered:** 5 production code files + 8 documentation guides (1000+ KB); Initial commit f4269ba.
-- **Production Hotfixes:** Three critical fixes applied and deployed (c31ab5b, 4217ff1, 653952d) — requirements formatting, openai version conflict, SourceSpan field mapping.
-- **Current Status:** Railway backend + Vercel frontend operational. All endpoints tested. System stable and monitoring.
-- **Outstanding:** QA test suite execution, Sprint 5 UI badges, confirm worker ingest/extract end-to-end.
+- **Late Night Debugging Session (Jan 30, 2026):** Extensive worker pipeline debugging - 9 commits, multiple fixes.
+- **Working:** PaddleOCR extraction (50+ lines), Redis job queue, ARQ worker functions, OpenAI API configured.
+- **Not Working:** Recipe fields not populating after vision extraction (database timeout suspected).
+- **Key Discovery:** Two jobs.py files exist - `apps/worker/jobs.py` is the real one, NOT `apps/api/worker/jobs.py`.
+- **Next:** Debug extract_job to ensure vision results save to Recipe; fix DB connection pool timeout.
 <!-- SUMMARY_END -->
 
 ---
@@ -48,6 +45,69 @@
 ---
 
 ## Recent Sessions (last 3-5)
+
+### 2026-01-30 (Session 14: Late Night Worker Pipeline Debugging)
+
+**Participants:** User, Claude Agent
+**Branch:** main
+
+### What we worked on
+- Debugged worker pipeline for hours - multiple issues discovered and fixed
+- Changed recipe review UI from split-screen to tabbed interface per user request
+- Fixed Supabase prepared statement errors (`prepare_threshold=None`)
+- Fixed ARQ worker ctx parameter issues (all worker functions need ctx as first param)
+- Fixed file storage access (worker can't access API's /data/assets - passed file_data via Redis instead)
+- Fixed OpenAI API key permissions (401 error - needed full permissions, not restricted)
+- Discovered TWO jobs.py files: `apps/worker/jobs.py` (real) vs `apps/api/worker/jobs.py` (old)
+- Fixed SQLAlchemy Python 3.13 compatibility (upgraded to >=2.0.36)
+
+### Commits This Session
+| Commit | Fix |
+|--------|-----|
+| `f662798` | Add `prepare_threshold=None` to worker DB connections |
+| `3a8f41b` | Pass ctx parameter to extract_job call in ingest_job |
+| `774be85` | Add ctx parameter and file_data to ingest_recipe job |
+| `c30ed13` | Rewrite ingest_recipe for LLM vision PRIMARY |
+| `a164215` | Add ctx parameter to all ARQ worker functions |
+| `4116032` | Correct storage import path in worker |
+| `e729ab6` | Fix MediaMediaAsset double-replacement typo |
+| `276b669` | Restore WorkerSettings class |
+| `802e0cc` | Upgrade SQLAlchemy for Python 3.13 compatibility |
+
+### Files touched
+- `apps/worker/jobs.py` (main worker - multiple fixes)
+- `apps/api/routers/assets.py` (pass file_data to worker)
+- `apps/api/requirements.txt` (SQLAlchemy upgrade)
+- `apps/api/requirements-worker.txt` (SQLAlchemy upgrade)
+- `apps/web/app/review/[id]/page.tsx` (tabbed UI)
+- `docs/NOW.md`, `docs/SESSION_NOTES.md` (context updates)
+
+### What's Working
+- ✅ Railway API Service deployed and operational
+- ✅ Railway Worker Service processing jobs from Redis
+- ✅ PaddleOCR extracting 50+ OCR lines per image
+- ✅ OpenAI API key configured with full permissions
+- ✅ Database prepared statement error fixed
+- ✅ Tabbed UI for recipe review
+
+### What's NOT Working
+- ❌ Recipe fields not populating (no ingredients, no steps)
+- ❌ Database connection pool timeout in extract_job
+- ⚠️ extract_job may be failing silently
+
+### Outcomes / Decisions
+- **Worker file location:** `apps/worker/jobs.py` is the real worker, NOT `apps/api/worker/jobs.py`
+- **Supabase pooler:** All connections need `prepare_threshold=None`
+- **ARQ functions:** All must have `ctx` as first parameter
+- **File access:** Worker can't access API's filesystem - pass bytes via Redis
+
+### Next Session Focus
+1. Debug extract_job - add logging to see where it fails
+2. Fix database connection pool timeout
+3. Verify vision extraction results are saved to Recipe model
+4. Test with smaller image to rule out timeout issues
+
+---
 
 ### 2026-01-30 (Session 13: Production Ops Fixes)
 

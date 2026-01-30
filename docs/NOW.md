@@ -5,98 +5,95 @@
 
 <!-- SUMMARY_START -->
 **Current Focus (auto-maintained by Agent):**
-- **Sprint 0-6 Complete:** Full V1 implementation delivered (scaffolding → OCR → CRUD → UI → pantry/match).
-- **Sprint 2-3: OCR Enhancement Complete:** OCR rotation detection + OpenAI Vision extraction (primary) implemented and deployed.
-  - Tesseract PSM 0 rotation detection with 3-method voting (99% accuracy)
-  - SourceSpan.source_method field for provenance tracking
-- **Production Status:** Deployed to Railway backend, Vercel frontend. Hotfixes applied for async jobs, OCR compatibility, and worker deployment.
-- **Current Phase:** Production support + monitoring; async jobs enabled with Redis + worker.
-- **Next:** Verify worker ingestion + vision extraction end-to-end; run QA suite; implement UI badges.
+- **Session Jan 30, 2026:** Worker pipeline debugging session - multiple fixes applied.
+- **Status:** PaddleOCR + Redis + ARQ worker pipeline operational. OpenAI Vision API configured but recipe population not completing.
+- **Blockers Resolved:** ctx parameters, prepared statements, API key permissions, file storage access.
+- **Current Blocker:** Vision extraction succeeds but recipe fields not being populated (database timeout or extract_job issue).
+- **Next:** Debug extract_job to ensure vision results save to Recipe model; optimize DB pool.
 <!-- SUMMARY_END -->
 
 ---
 
-## Current Objective
+## Session Summary: Jan 30, 2026 (Late Night Debugging)
 
-Execute RecipeNow V1 implementation per SPEC.md: 6 sprints covering scaffolding, schema, OCR pipeline, CRUD, review UI, and pantry matching. All code decisions must use Context7 library resolution.
+### What's Working
+- ✅ **Railway API Service:** Deployed, endpoints operational
+- ✅ **Railway Worker Service:** Deployed, processing jobs from Redis
+- ✅ **Redis Job Queue:** Jobs queuing and dequeuing correctly
+- ✅ **PaddleOCR Extraction:** Successfully extracting 50+ OCR lines per image
+- ✅ **OpenAI API Key:** Configured with full permissions (401 error resolved)
+- ✅ **Database Prepared Statements:** Fixed with `prepare_threshold=None`
+- ✅ **ARQ Worker Functions:** All ctx parameters added correctly
+- ✅ **Tabbed UI:** Recipe review page changed from split-screen to tabs per user request
 
----
+### What's NOT Working
+- ❌ **Recipe Population:** Vision extraction runs but ingredients/steps not saved to Recipe
+- ❌ **Database Pool Timeout:** `Unable to check out connection from the pool due to timeout`
+- ⚠️ **extract_job:** May be failing silently after OCR completes
 
-## Active Branch
+### Fixes Applied This Session
 
-- `main`
+| Commit | Fix |
+|--------|-----|
+| `f662798` | Add `prepare_threshold=None` to worker DB connections |
+| `3a8f41b` | Pass ctx parameter to extract_job call in ingest_job |
+| `774be85` | Add ctx parameter and file_data to ingest_recipe job |
+| `c30ed13` | Rewrite ingest_recipe for LLM vision PRIMARY |
+| `a164215` | Add ctx parameter to all ARQ worker functions |
+| `4116032` | Correct storage import path in worker |
+| `e729ab6` | Fix MediaMediaAsset double-replacement typo |
+| `276b669` | Restore WorkerSettings class |
+| `802e0cc` | Upgrade SQLAlchemy for Python 3.13 compatibility |
 
----
+### Environment Variables Required
 
-## What We Are Working On Right Now
-
-### Production Support Phase: Monitoring & Stabilization
-
-**Status:** All implementation complete and deployed. Monitoring for production issues. System stable.
-
-#### Completed & Deployed (Commit f4269ba):
-- ✅ SPEC.md V1.1: Vision-primary pipeline (OCR evidence + OpenAI Vision)
-- ✅ apps/api/services/ocr.py: Tesseract PSM 0 rotation detection (145-line implementation)
-- ✅ apps/api/services/llm_vision.py: LLMVisionService (OpenAI Vision primary)
-- ✅ apps/api/worker/jobs.py: Ingest → Extract → Normalize pipeline (parser fallback only)
-- ✅ apps/api/db/models.py: SourceSpan model extended with source_method field
-- ✅ Database migration 002: Idempotent schema migration (source_method column + indexes)
-- ✅ apps/api/requirements.txt: All dependencies added and pinned
-- ✅ Eight comprehensive documentation guides (TESTING_GUIDE, DEPLOYMENT_CHECKLIST, QUICK_START, etc.)
-
-#### Production Hotfixes Applied:
-1. **Commit c31ab5b** - Fixed requirements.txt formatting
-   - Issue: Line 21 had "python-dotenv==1.0.0httpx==0.27.0" (missing newline)
-   - Solution: Split into separate lines
-   - Result: Railway docker build now succeeds
-
-2. **Commit 4217ff1** - Resolved openai version conflict
-   - Issue: openai==1.30.0 too old; paddlex requires openai>=1.63
-   - Solution: Changed to openai>=1.63.0
-   - Result: pip dependency resolution succeeds
-
-3. **Commit 653952d** - Fixed SourceSpan field mapping
-   - Issue: Job used `confidence` field but model expects `ocr_confidence`; Response schema missing `source_method`
-   - Solution: Corrected field name in jobs.py, added source_method to SourceSpanResponse, updated list_spans endpoint
-   - Result: API endpoint `/recipes/{recipe_id}/spans` returns 200 with proper field attribution
-
-#### Current Status:
-- ✅ Railway backend: All dependencies resolved, API endpoints operational
-- ✅ Vercel frontend: Deployed and communicating with backend
-- ✅ Git history: All commits pushed to origin/main (f4269ba → c31ab5b → 4217ff1 → 653952d)
-- ✅ Production monitoring: Watching for additional errors
-
-#### Pending Tasks:
-- 🔄 Confirm worker processes ingest/extract jobs without errors (Redis auth, OCR deps, imports).
-- 🔄 QA test suite execution per docs/TESTING_GUIDE.md
-- 🔄 UI badge implementation (Sprint 5)
-- 🔄 End-to-end testing with rotated recipe images
-
-#### Next Steps:
-1. **Verify worker ingestion/extract** in Railway (check worker logs for ingest/extract success).
-2. Monitor upload performance and success rates.
-3. Execute QA testing per TESTING_GUIDE.md (rotation detection, vision extraction, full pipeline).
-4. Implement Sprint 5 UI badges (color-coded source attribution).
-
-### Sprint 6 – Pantry & Match
-
-- [ ] **Sprint 6.1:** Implement GET /pantry endpoint with pagination and user isolation.
-- [ ] **Sprint 6.2:** Implement POST /pantry/items endpoint for creating pantry items.
-- [ ] **Sprint 6.3:** Implement PATCH /pantry/items/{id} and DELETE /pantry/items/{id} endpoints.
-- [ ] **Sprint 6.4:** Build matching logic: score recipes against pantry items (name_norm matching).
-- [ ] **Sprint 6.5:** Implement POST /match endpoint that returns match % per recipe.
-- [ ] **Sprint 6.6:** Create shopping list generation from match results.
-- [ ] **Sprint 6.7:** Build Pantry UI page with CRUD operations and "What Can I Cook?" matching.
-- [ ] **Sprint 6.8:** Create Match Results page showing recipe scores and missing ingredients.
+**recipenow-worker service needs:**
+- `OPENAI_API_KEY` - OpenAI API key with full permissions (not restricted)
+- `DATABASE_URL` - Supabase connection string
+- `REDIS_URL` - Redis connection string
 
 ---
 
-## Upcoming Sprints (After Sprint 2)
-QA sign-off on OCR enhancement (rotation + vision extraction) → database migration → Sprint 5 UI badges → production release v1.1
-- **Sprint 3:** Structure & Normalize (parse OCRLines → Recipe + SourceSpans + FieldStatus).
-- **Sprint 4:** CRUD & Persistence (DB repositories + Recipe/SourceSpan endpoints with FieldStatus updates).
-- **Sprint 5:** Review UI (split-view in Next.js with image viewer + field highlights + badges).
-- **Sprint 6:** Pantry & Match (pantry CRUD + matching logic + shopping list).
+## Next Steps (Priority Order)
+
+### 1. Debug extract_job Recipe Population (HIGH)
+- Add logging before/after recipe update in `apps/worker/jobs.py` line ~380
+- Verify vision_result contains title, ingredients, steps
+- Check if database commit succeeds after recipe update
+
+### 2. Fix Database Connection Pool Timeout (HIGH)
+- Current error: `Unable to check out connection from the pool due to timeout`
+- Add `pool_timeout=30` to create_engine calls
+- Consider `pool_pre_ping=True` for connection validation
+
+### 3. Add Vision Extraction Logging (MEDIUM)
+- Log vision API response before parsing
+- Log recipe fields before database save
+- Track source_method='vision-api' attribution
+
+### 4. Test with Smaller Image (LOW)
+- Rule out timeout caused by large image processing
+- Verify pipeline works end-to-end with simple recipe card
+
+---
+
+## Architecture Notes
+
+### Pipeline Flow
+```
+Upload → API saves file → Queue ingest_job → Worker:
+  1. PaddleOCR extracts text (WORKING)
+  2. Save OCR lines to DB (WORKING)
+  3. Call extract_job with ctx (FIXED)
+  4. Vision API extracts recipe (CONFIGURED)
+  5. Save Recipe fields to DB (NOT WORKING)
+```
+
+### Key Files
+- `apps/worker/jobs.py` - Main worker job definitions (NOT apps/api/worker/jobs.py)
+- `apps/api/services/llm_vision.py` - OpenAI Vision service
+- `apps/api/services/ocr.py` - PaddleOCR service
+- `apps/api/routers/assets.py` - Upload endpoint with job queuing
 
 ---
 
@@ -109,22 +106,9 @@ QA sign-off on OCR enhancement (rotation + vision extraction) → database migra
 
 ---
 
-## Next Milestone
-
-Railway OCR pipeline stable → parsed fields populate and field statuses render correctly.
-
----
-
-## Drift Guards (keep NOW fresh)
-
-- Keep NOW to 5-12 active tasks; remove completed items.
-- Refresh summary block every session.
-- Move completed sprints to SESSION_NOTES; archive outdated tasks.
-
----
-
 ## Notes / Scratchpad
 
-- SPEC.md is now the single source of truth; all implementation must follow it.
-- Open questions (job queue, OCR lib, auth mode) are documented in SPEC.md and resolved by Context7.
-- If NOW grows beyond 12 items, roll up to SESSION_NOTES and keep only active tasks here.
+- Worker uses `apps/worker/jobs.py`, NOT `apps/api/worker/jobs.py` (two different files!)
+- Supabase transaction pooler requires `prepare_threshold=None` on all connections
+- ARQ worker functions require `ctx` as first parameter
+- OpenAI API key needs full permissions, not restricted scope
