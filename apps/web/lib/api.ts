@@ -433,3 +433,19 @@ export async function generateShoppingList(
   if (!res.ok) throw new Error(`Failed to generate shopping list: ${res.statusText}`)
   return res.json()
 }
+
+// Cleanup endpoints
+export interface CleanupResponse {
+  deleted_count: number
+  message: string
+}
+
+export async function cleanupEmptyRecipes(userId: string): Promise<CleanupResponse> {
+  const res = await fetch(`${API_BASE}/recipes/cleanup/empty?user_id=${userId}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+  })
+
+  if (!res.ok) throw new Error(`Failed to cleanup recipes: ${res.statusText}`)
+  return res.json()
+}

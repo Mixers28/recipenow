@@ -6,7 +6,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRecipeList } from '@/hooks/useRecipes'
-import { deleteRecipe } from '@/lib/api'
+import { deleteRecipe, cleanupEmptyRecipes } from '@/lib/api'
 import { useDebounce } from '@/hooks/useDebounce'
 import { RecipeStatusBadge } from '@/components/RecipeStatusBadge'
 import { PullToRefresh } from '@/components/PullToRefresh'
@@ -18,6 +18,8 @@ export default function LibraryPage() {
   const [statusFilter, setStatusFilter] = useState<string>('')
   const [actionError, setActionError] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [cleaningUp, setCleaningUp] = useState(false)
+  const [cleanupMessage, setCleanupMessage] = useState<string | null>(null)
   const debouncedSearchQuery = useDebounce(searchQuery, 300)
   const { recipes, total, loading, error, fetch } = useRecipeList(DEMO_USER_ID)
 
@@ -51,18 +53,46 @@ export default function LibraryPage() {
     }
   }
 
+  const handleCleanup = async () => {
+    const confirmed = confirm('Delete all failed recipes (no ingredients and no steps)? This cannot be undone.')
+    if (!confirmed) return
+
+    try {
+      setCleaningUp(true)
+      setActionError(null)
+      setCleanupMessage(null)
+      const result = await cleanupEmptyRecipes(DEMO_USER_ID)
+      setCleanupMessage(result.message)
+      await fetch({ query: searchQuery, status: statusFilter || undefined })
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to cleanup recipes')
+    } finally {
+      setCleaningUp(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex justify-between items-center gap-4">
-        <h1 className="text-2xl md:text-3xl font-bold text-gray-900">📚 Recipe Library</h1>
-        <Link
-          href="/upload"
-          className="px-3 py-2 md:px-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm md:text-base min-h-touch flex items-center whitespace-nowrap"
-        >
-          <span className="hidden md:inline">⬆️ Upload Recipe</span>
-          <span className="md:hidden">⬆️</span>
-        </Link>
+        <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Recipe Library</h1>
+        <div className="flex gap-2">
+          <button
+            onClick={handleCleanup}
+            disabled={cleaningUp}
+            className="px-3 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors text-sm min-h-touch flex items-center whitespace-nowrap disabled:opacity-50"
+            title="Delete all recipes with no ingredients and no steps"
+          >
+            {cleaningUp ? 'Cleaning...' : 'Clean Up Failed'}
+          </button>
+          <Link
+            href="/upload"
+            className="px-3 py-2 md:px-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm md:text-base min-h-touch flex items-center whitespace-nowrap"
+          >
+            <span className="hidden md:inline">Upload Recipe</span>
+            <span className="md:hidden">+</span>
+          </Link>
+        </div>
       </div>
 
       {/* Filters */}
@@ -107,6 +137,16 @@ export default function LibraryPage() {
           {loading ? 'Loading...' : `${recipes.length} of ${total} recipes`}
         </div>
       </div>
+
+      {/* Success message */}
+      {cleanupMessage && (
+        <div className="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-lg flex justify-between items-center">
+          <span>{cleanupMessage}</span>
+          <button onClick={() => setCleanupMessage(null)} className="text-green-600 hover:text-green-800">
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Error display */}
       {(error || actionError) && (
