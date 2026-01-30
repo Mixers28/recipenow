@@ -1,6 +1,5 @@
 # Worker Service Dependencies
-# Minimal dependencies for ARQ worker running LLM vision extraction
-# Does NOT include PaddleOCR/PaddlePaddle (OCR fallback only used in API service)
+# Minimal dependencies for ARQ worker running OCR + vision extraction
 
 # FastAPI (for shared models/schemas)
 fastapi==0.128.0
@@ -12,6 +11,10 @@ sqlalchemy>=2.0.36  # Python 3.13 compatible
 # Job Queue & Async (REQUIRED)
 arq==0.26.3
 redis==5.0.1
+
+# OCR (required for ingest_job in worker)
+paddleocr[all]==3.3.2
+paddlepaddle==3.0.0
 
 # Data Validation
 # Use newer versions for Python 3.13 compatibility
