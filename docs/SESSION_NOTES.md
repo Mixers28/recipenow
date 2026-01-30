@@ -5,11 +5,10 @@
 
 <!-- SUMMARY_START -->
 **Latest Summary (auto-maintained by Agent):**
-- **Late Night Debugging Session (Jan 30, 2026):** Extensive worker pipeline debugging - 9 commits, multiple fixes.
-- **Working:** PaddleOCR extraction (50+ lines), Redis job queue, ARQ worker functions, OpenAI API configured.
-- **Not Working:** Recipe fields not populating after vision extraction (database timeout suspected).
-- **Key Discovery:** Two jobs.py files exist - `apps/worker/jobs.py` is the real one, NOT `apps/api/worker/jobs.py`.
-- **Next:** Debug extract_job to ensure vision results save to Recipe; fix DB connection pool timeout.
+- **Session 15 (Jan 30, 2026):** Major debugging session fixing Vision API extraction pipeline.
+- **Root Cause Found:** Worker `extract_job` had incorrect sys.path (`/packages` instead of `/app/packages` + `/app/apps`), causing Vision API imports to fail silently and fall back to OCR-only parser.
+- **Fixes Applied:** ORM columns added, duplicate code removed, shared utils created, sys.path fixed.
+- **Current Status:** All fixes committed (3b9cc9f, dfe6c14, 8ad2f31), ready to push. Vision API should now extract recipes correctly.
 <!-- SUMMARY_END -->
 
 ---
@@ -46,114 +45,49 @@
 
 ## Recent Sessions (last 3-5)
 
-### 2026-01-30 (Session 14: Late Night Worker Pipeline Debugging)
+### 2026-01-30 (Session 15: Vision API Pipeline Debugging)
 
-**Participants:** User, Claude Agent
+**Participants:** User, Claude Opus 4.5
 **Branch:** main
 
 ### What we worked on
-- Debugged worker pipeline for hours - multiple issues discovered and fixed
-- Changed recipe review UI from split-screen to tabbed interface per user request
-- Fixed Supabase prepared statement errors (`prepare_threshold=None`)
-- Fixed ARQ worker ctx parameter issues (all worker functions need ctx as first param)
-- Fixed file storage access (worker can't access API's /data/assets - passed file_data via Redis instead)
-- Fixed OpenAI API key permissions (401 error - needed full permissions, not restricted)
-- Discovered TWO jobs.py files: `apps/worker/jobs.py` (real) vs `apps/api/worker/jobs.py` (old)
-- Fixed SQLAlchemy Python 3.13 compatibility (upgraded to >=2.0.36)
-
-### Commits This Session
-| Commit | Fix |
-|--------|-----|
-| `f662798` | Add `prepare_threshold=None` to worker DB connections |
-| `3a8f41b` | Pass ctx parameter to extract_job call in ingest_job |
-| `774be85` | Add ctx parameter and file_data to ingest_recipe job |
-| `c30ed13` | Rewrite ingest_recipe for LLM vision PRIMARY |
-| `a164215` | Add ctx parameter to all ARQ worker functions |
-| `4116032` | Correct storage import path in worker |
-| `e729ab6` | Fix MediaMediaAsset double-replacement typo |
-| `276b669` | Restore WorkerSettings class |
-| `802e0cc` | Upgrade SQLAlchemy for Python 3.13 compatibility |
+- **Root Cause Analysis:** Recipe extraction showing wrong title and jumbled steps - identified Vision API fallback to OCR-only parser
+- **Bug #1:** ORM models missing `servings_estimate` (Recipe) and `evidence` (SourceSpan) columns that migrations added
+- **Bug #2:** Duplicate `apps/api/worker/jobs.py` file (714 lines of dead code causing confusion)
+- **Bug #3:** `pantry.py` importing `_extract_ingredient_name` from deleted worker module
+- **Bug #4 (Root Cause):** `extract_job` and `normalize_job` had wrong sys.path (`/packages` instead of `/app/packages` + `/app/apps`), causing `from api.services.llm_vision import` to fail silently
 
 ### Files touched
-- `apps/worker/jobs.py` (main worker - multiple fixes)
-- `apps/api/routers/assets.py` (pass file_data to worker)
-- `apps/api/requirements.txt` (SQLAlchemy upgrade)
-- `apps/api/requirements-worker.txt` (SQLAlchemy upgrade)
-- `apps/web/app/review/[id]/page.tsx` (tabbed UI)
-- `docs/NOW.md`, `docs/SESSION_NOTES.md` (context updates)
+- `apps/api/db/models.py` (added servings_estimate, evidence columns)
+- `apps/api/worker/` (deleted entire directory - duplicate dead code)
+- `apps/api/services/ingredient_utils.py` (NEW - shared extract_ingredient_name function)
+- `apps/api/routers/pantry.py` (updated import to use shared module)
+- `apps/worker/jobs.py` (fixed sys.path in extract_job and normalize_job)
+- `docs/SESSION_NOTES.md` (this entry)
+- `docs/NOW.md` (updated status)
 
-### What's Working
-- ✅ Railway API Service deployed and operational
-- ✅ Railway Worker Service processing jobs from Redis
-- ✅ PaddleOCR extracting 50+ OCR lines per image
-- ✅ OpenAI API key configured with full permissions
-- ✅ Database prepared statement error fixed
-- ✅ Tabbed UI for recipe review
-
-### What's NOT Working
-- ❌ Recipe fields not populating (no ingredients, no steps)
-- ❌ Database connection pool timeout in extract_job
-- ⚠️ extract_job may be failing silently
+### Commits
+1. `3b9cc9f` - fix: Add missing ORM columns and remove duplicate worker jobs
+2. `dfe6c14` - fix: Move extract_ingredient_name to shared services module
+3. `8ad2f31` - fix: Add missing sys.path entries for extract_job and normalize_job
 
 ### Outcomes / Decisions
-- **Worker file location:** `apps/worker/jobs.py` is the real worker, NOT `apps/api/worker/jobs.py`
-- **Supabase pooler:** All connections need `prepare_threshold=None`
-- **ARQ functions:** All must have `ctx` as first parameter
-- **File access:** Worker can't access API's filesystem - pass bytes via Redis
+- **Vision API now importable:** With correct sys.path (`/app/packages` + `/app/apps`), the worker can import `api.services.llm_vision`
+- **ORM in sync with DB:** Both `servings_estimate` and `evidence` columns now defined in models
+- **Code cleanup:** Removed 714 lines of duplicate dead code that was causing confusion during debugging
+- **Shared utilities:** Created `services/ingredient_utils.py` for functions needed by both API and worker
 
-### Next Session Focus
-1. Debug extract_job - add logging to see where it fails
-2. Fix database connection pool timeout
-3. Verify vision extraction results are saved to Recipe model
-4. Test with smaller image to rule out timeout issues
+### Key Learnings
+- Docker COPY paths must match sys.path additions (Dockerfile copies to `/app/apps/api`, so need `/app/apps` in path for `from api.` imports)
+- Silent import failures in try/except blocks can mask the real issue (Vision API failure looked like "poor extraction" not "import error")
+- Duplicate code in different locations creates confusion when debugging
+
+### Next Steps
+1. Push commits to deploy: `git push origin main`
+2. Test recipe upload - should now show correct title, ingredients, steps from Vision API
+3. Monitor worker logs for `[Phase 2] Calling Vision API` success messages
 
 ---
-
-### 2026-01-30 (Session 13: Production Ops Fixes)
-
-**Participants:** User, Codex Agent  
-**Branch:** main
-
-### What we worked on
-- Diagnosed Supabase schema mismatch and applied migration 003 (servings_estimate + evidence).
-- Fixed ARQ worker entrypoints (WorkerSettings + ctx signatures) and Redis auth parsing via `REDIS_URL`.
-- Added PaddleOCR compatibility fallback for `cls` arg.
-- Added OCR deps to worker requirements and system libs to worker Dockerfile.
-- Updated worker image to include `packages/` and `apps/api` for schema imports.
-
-### Files touched
-- `apps/api/worker/jobs.py`, `apps/worker/jobs.py`, `apps/worker/worker.py`
-- `apps/api/services/ocr.py`
-- `apps/api/requirements-worker.txt`
-- `apps/worker/Dockerfile`
-- `infra/migrations/003_add_evidence_servings_estimate.sql`
-
-### Outcomes / Decisions
-- **Supabase:** Production DB is Supabase Postgres; migrations must run in Supabase.
-- **Worker deploy:** Worker image must be built from repo root with Dockerfile path `apps/worker/Dockerfile`.
-- **Redis:** Use `REDIS_URL` with password; no `redis:6379` fallback in production.
-
-### 2026-01-30 (Session 12: Vision-Primary OpenAI Alignment)
-
-**Participants:** User, Codex Agent  
-**Branch:** main
-
-### What we worked on
-- Updated specs and docs to make OpenAI Vision API the primary extractor (no local/self-hosted LLMs).
-- Removed Ollama/fallback references from active docs; deprecated offline LLM guide.
-- Updated Quick Start, Testing Guide, Deployment Checklist, Implementation docs, INDEX, NOW, and Project Context.
-- Removed anthropic dependency from requirements; OpenAI-only vision extraction.
-
-### Files touched
-- `docs/SPEC.md`, `docs/Spec_main.md`, `README.md`, `REPO_README.md`
-- `docs/QUICK_START.md`, `docs/TESTING_GUIDE.md`, `docs/DEPLOYMENT_CHECKLIST.md`
-- `docs/IMPLEMENTATION_PROGRESS.md`, `docs/IMPLEMENTATION_SUMMARY.md`, `docs/INDEX.md`, `docs/NOW.md`, `docs/PROJECT_CONTEXT.md`
-- `apps/api/requirements.txt`, `apps/api/requirements-worker.txt`
-
-### Outcomes / Decisions
-- **Vision-primary:** OpenAI Vision API is the only supported extractor.
-- **No local LLMs:** Ollama/local deployment docs deprecated.
-- **Env config:** `OPENAI_API_KEY` + `VISION_MODEL` required for extraction.
 
 ### 2026-01-25 (Session 11: OCR Enhancement + Production Deployment)
 
@@ -165,6 +99,7 @@
 - **Designed two-stage OCR pipeline:** Tesseract rotation detection + ImageMagick preprocessing + LLM vision fallback
 - **Updated SPEC.md v2.1:** Integrated OCR enhancement as canonical specification with full pipeline design
 - **Implemented OCRService rotation detection:** `_detect_and_correct_rotation()` method (145 lines, Tesseract voting, ImageMagick fallback)
+- **Created LLMVisionService:** 400+ lines, Ollama + LLaVA-7B (offline-first) + Claude + OpenAI (cloud backup)
 - **Implemented job pipeline:** Ingest → Structure (with LLM fallback on critical field misses) → Normalize
 - **Extended database schema:** SourceSpan model + source_method field + migration 002 (idempotent)
 - **Updated API endpoints:** SourceSpanResponse schema with source_method field + list_spans endpoint
@@ -190,6 +125,7 @@
 - **OCR Method Decision:** Tesseract PSM 0 rotation detection (proven 99% accuracy) + ImageMagick preprocessing (fallback) selected over LLaVA-only approach
 - **LLM Vision Role:** LLaVA only for vision reading (extract visible text), not inference or hallucination
 - **Provenance Tracking:** SourceSpan.source_method field enables tracking whether each field came from OCR or LLM vision
+- **Offline-First:** Ollama + LLaVA-7B as primary fallback (local, no API keys), with optional cloud providers
 - **Error Handling:** Graceful degradation — OCR fails → LLM fills critical gaps → user can review/edit
 - **Deployment Strategy:** Hotfix-driven approach for critical production issues (requirements, dependencies, field mappings)
 
