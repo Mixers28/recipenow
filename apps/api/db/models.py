@@ -62,6 +62,7 @@ class Recipe(Base):
     steps: Mapped[list] = mapped_column(JSON, default=[])
     tags: Mapped[list] = mapped_column(JSON, default=[])
     nutrition: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    thumbnail_crop: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # {x, y, width, height} for meal photo crop
     status: Mapped[str] = mapped_column(String(20), default="draft")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(

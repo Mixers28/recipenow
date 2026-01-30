@@ -5,16 +5,18 @@
 'use client'
 
 import { useState } from 'react'
-import { Recipe } from '@/lib/api'
+import { Recipe, ThumbnailCrop } from '@/lib/api'
 
 interface FlipRecipeCardProps {
   recipe: Recipe
   imageUrl: string
   onEdit?: () => void
+  onSetThumbnail?: () => void
 }
 
-export function FlipRecipeCard({ recipe, imageUrl, onEdit }: FlipRecipeCardProps) {
+export function FlipRecipeCard({ recipe, imageUrl, onEdit, onSetThumbnail }: FlipRecipeCardProps) {
   const [isFlipped, setIsFlipped] = useState(false)
+  const crop = recipe.thumbnail_crop
 
   const handleFlip = () => {
     setIsFlipped(!isFlipped)
@@ -42,11 +44,24 @@ export function FlipRecipeCard({ recipe, imageUrl, onEdit }: FlipRecipeCardProps
           >
             <div className="aspect-[4/5] relative">
               {imageUrl ? (
-                <img
-                  src={imageUrl}
-                  alt={recipe.title || 'Recipe image'}
-                  className="w-full h-full object-cover"
-                />
+                crop ? (
+                  // Display cropped portion of image
+                  <div
+                    className="w-full h-full"
+                    style={{
+                      backgroundImage: `url(${imageUrl})`,
+                      backgroundSize: `${100 / (crop.width / 100)}% ${100 / (crop.height / 100)}%`,
+                      backgroundPosition: `${(crop.x / (100 - crop.width)) * 100}% ${(crop.y / (100 - crop.height)) * 100}%`,
+                    }}
+                  />
+                ) : (
+                  // No crop set - show full image
+                  <img
+                    src={imageUrl}
+                    alt={recipe.title || 'Recipe image'}
+                    className="w-full h-full object-cover"
+                  />
+                )
               ) : (
                 <div className="w-full h-full bg-gray-200 flex items-center justify-center">
                   <span className="text-gray-500">No image</span>
@@ -144,17 +159,30 @@ export function FlipRecipeCard({ recipe, imageUrl, onEdit }: FlipRecipeCardProps
         }`}>
           {recipe.status === 'verified' ? '✓ Verified' : '⚠ Needs Review'}
         </span>
-        {onEdit && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              onEdit()
-            }}
-            className="text-sm text-blue-600 hover:text-blue-700 underline"
-          >
-            Edit Recipe
-          </button>
-        )}
+        <div className="flex gap-3">
+          {onSetThumbnail && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                onSetThumbnail()
+              }}
+              className="text-sm text-gray-600 hover:text-gray-800 underline"
+            >
+              {crop ? 'Change Photo' : 'Set Photo'}
+            </button>
+          )}
+          {onEdit && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                onEdit()
+              }}
+              className="text-sm text-blue-600 hover:text-blue-700 underline"
+            >
+              Edit Recipe
+            </button>
+          )}
+        </div>
       </div>
     </div>
   )

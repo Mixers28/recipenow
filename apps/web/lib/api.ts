@@ -4,6 +4,13 @@
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
 
+export interface ThumbnailCrop {
+  x: number      // percentage (0-100)
+  y: number      // percentage (0-100)
+  width: number  // percentage (0-100)
+  height: number // percentage (0-100)
+}
+
 export interface Recipe {
   id: string
   user_id: string
@@ -13,6 +20,7 @@ export interface Recipe {
   steps?: Step[]
   tags?: string[]
   nutrition?: Nutrition
+  thumbnail_crop?: ThumbnailCrop  // crop coordinates for meal photo display
   status: 'draft' | 'needs_review' | 'verified'
   created_at?: string
   updated_at?: string

@@ -5,13 +5,14 @@
  */
 'use client'
 
-import { useState, lazy, Suspense, useEffect } from 'react'
+import { useState, lazy, Suspense, useEffect, useCallback } from 'react'
 import { useParams, useSearchParams } from 'next/navigation'
 import { useRecipe } from '@/hooks/useRecipes'
 import { Tabs } from '@/components/Tabs'
-import { SourceSpan, Recipe, getAsset } from '@/lib/api'
+import { SourceSpan, Recipe, getAsset, ThumbnailCrop } from '@/lib/api'
 import { SkeletonImageViewer, SkeletonRecipeForm } from '@/components/SkeletonLoader'
 import { FlipRecipeCard } from '@/components/FlipRecipeCard'
+import { ImageCropSelector } from '@/components/ImageCropSelector'
 
 const ImageViewer = lazy(() => import('@/components/ImageViewer').then(m => ({ default: m.ImageViewer })))
 const RecipeForm = lazy(() => import('@/components/RecipeForm').then(m => ({ default: m.RecipeForm })))
@@ -30,6 +31,8 @@ export default function ReviewPage() {
   const [imageUrl, setImageUrl] = useState<string>('')
   const [imageLoading, setImageLoading] = useState(false)
   const [editMode, setEditMode] = useState(false)
+  const [cropMode, setCropMode] = useState(false)
+  const [pendingCrop, setPendingCrop] = useState<ThumbnailCrop | null>(null)
 
   const { recipe, spans, fieldStatuses, loading, error, update, verify } = useRecipe(
     DEMO_USER_ID,
@@ -90,6 +93,23 @@ export default function ReviewPage() {
     await update(data)
   }
 
+  const handleCropChange = useCallback((crop: ThumbnailCrop) => {
+    setPendingCrop(crop)
+  }, [])
+
+  const handleSaveCrop = async () => {
+    if (pendingCrop) {
+      await update({ thumbnail_crop: pendingCrop })
+      setCropMode(false)
+      setPendingCrop(null)
+    }
+  }
+
+  const handleCancelCrop = () => {
+    setCropMode(false)
+    setPendingCrop(null)
+  }
+
   const handleVerify = async () => {
     setVerifyLoading(true)
     setVerifyError(undefined)
@@ -132,6 +152,33 @@ export default function ReviewPage() {
   const showCardView = isVerified && !editMode
 
   if (showCardView) {
+    // Show crop mode UI
+    if (cropMode) {
+      return (
+        <div className="space-y-4 py-4 max-w-2xl mx-auto">
+          <div className="flex justify-between items-center">
+            <h1 className="text-xl font-bold text-gray-900">
+              Select Meal Photo
+            </h1>
+            <a
+              href="/library"
+              className="text-sm text-gray-600 hover:text-gray-800"
+            >
+              ← Back to Library
+            </a>
+          </div>
+
+          <ImageCropSelector
+            imageUrl={imageUrl}
+            initialCrop={recipe.thumbnail_crop}
+            onCropChange={handleCropChange}
+            onSave={handleSaveCrop}
+            onCancel={handleCancelCrop}
+          />
+        </div>
+      )
+    }
+
     return (
       <div className="space-y-4 py-4">
         {/* Header */}
@@ -152,6 +199,7 @@ export default function ReviewPage() {
           recipe={recipe}
           imageUrl={imageUrl}
           onEdit={() => setEditMode(true)}
+          onSetThumbnail={() => setCropMode(true)}
         />
       </div>
     )

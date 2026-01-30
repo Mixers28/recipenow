@@ -41,6 +41,7 @@ class RecipeResponse(BaseModel):
     steps: Optional[list]
     tags: Optional[list]
     nutrition: Optional[dict]
+    thumbnail_crop: Optional[dict] = None  # {x, y, width, height} for meal photo crop
     status: str
     created_at: Optional[str]
     updated_at: Optional[str]
@@ -58,6 +59,7 @@ class RecipePatchRequest(BaseModel):
     steps: Optional[list] = None
     tags: Optional[List[str]] = None
     nutrition: Optional[dict] = None
+    thumbnail_crop: Optional[dict] = None  # {x, y, width, height} for meal photo crop
 
 
 class VerifyResponse(BaseModel):
@@ -170,6 +172,7 @@ def list_recipes(
                     steps=r.steps,
                     tags=r.tags,
                     nutrition=r.nutrition,
+                    thumbnail_crop=r.thumbnail_crop,
                     status=r.status,
                     created_at=r.created_at.isoformat() if r.created_at else None,
                     updated_at=r.updated_at.isoformat() if r.updated_at else None,
@@ -229,6 +232,7 @@ def create_recipe(
             steps=recipe.steps,
             tags=recipe.tags,
             nutrition=recipe.nutrition,
+            thumbnail_crop=recipe.thumbnail_crop,
             status=recipe.status,
             created_at=recipe.created_at.isoformat() if recipe.created_at else None,
             updated_at=recipe.updated_at.isoformat() if recipe.updated_at else None,
@@ -412,6 +416,7 @@ def get_recipe(
             steps=recipe.steps,
             tags=recipe.tags,
             nutrition=recipe.nutrition,
+            thumbnail_crop=recipe.thumbnail_crop,
             status=recipe.status,
             created_at=recipe.created_at.isoformat() if recipe.created_at else None,
             updated_at=recipe.updated_at.isoformat() if recipe.updated_at else None,
@@ -493,6 +498,7 @@ def update_recipe(
             steps=recipe.steps,
             tags=recipe.tags,
             nutrition=recipe.nutrition,
+            thumbnail_crop=recipe.thumbnail_crop,
             status=recipe.status,
             created_at=recipe.created_at.isoformat() if recipe.created_at else None,
             updated_at=recipe.updated_at.isoformat() if recipe.updated_at else None,
