@@ -449,3 +449,13 @@ export async function cleanupEmptyRecipes(userId: string): Promise<CleanupRespon
   if (!res.ok) throw new Error(`Failed to cleanup recipes: ${res.statusText}`)
   return res.json()
 }
+
+export async function cleanupAllRecipes(userId: string): Promise<CleanupResponse> {
+  const res = await fetch(`${API_BASE}/recipes/cleanup/all?user_id=${userId}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+  })
+
+  if (!res.ok) throw new Error(`Failed to cleanup all recipes: ${res.statusText}`)
+  return res.json()
+}

@@ -320,6 +320,62 @@ def cleanup_empty_recipes(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.delete("/cleanup/all", response_model=CleanupResponse)
+def cleanup_all_recipes(
+    user_id: str = None,
+    db: Session = Depends(get_session),
+) -> CleanupResponse:
+    """
+    Delete ALL recipes for a user. For testing purposes only.
+
+    Args:
+        user_id: User UUID (required)
+        db: Database session
+
+    Returns:
+        Count of deleted recipes
+    """
+    from db.models import Recipe, SourceSpan, FieldStatus, MediaAsset
+
+    try:
+        if not user_id:
+            raise HTTPException(status_code=400, detail="user_id is required")
+
+        user_uuid = UUID(user_id)
+
+        # Find all recipes for user
+        all_recipes = db.query(Recipe).filter(Recipe.user_id == user_uuid).all()
+
+        deleted_count = 0
+        for recipe in all_recipes:
+            # Delete related SourceSpans
+            db.query(SourceSpan).filter_by(recipe_id=recipe.id).delete()
+            # Delete related FieldStatuses
+            db.query(FieldStatus).filter_by(recipe_id=recipe.id).delete()
+            # Delete the recipe
+            db.delete(recipe)
+            deleted_count += 1
+
+        # Also delete all media assets for this user
+        db.query(MediaAsset).filter(MediaAsset.user_id == user_uuid).delete()
+
+        db.commit()
+
+        logger.info(f"Cleaned up ALL {deleted_count} recipes for user {user_id}")
+
+        return CleanupResponse(
+            deleted_count=deleted_count,
+            message=f"Deleted ALL {deleted_count} recipes and assets for testing"
+        )
+
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id format")
+    except Exception as e:
+        logger.error(f"Cleanup all failed: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/{recipe_id}", response_model=RecipeResponse)
 def get_recipe(
     recipe_id: str,

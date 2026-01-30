@@ -6,7 +6,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRecipeList } from '@/hooks/useRecipes'
-import { deleteRecipe, cleanupEmptyRecipes } from '@/lib/api'
+import { deleteRecipe, cleanupEmptyRecipes, cleanupAllRecipes } from '@/lib/api'
 import { useDebounce } from '@/hooks/useDebounce'
 import { RecipeStatusBadge } from '@/components/RecipeStatusBadge'
 import { PullToRefresh } from '@/components/PullToRefresh'
@@ -71,6 +71,24 @@ export default function LibraryPage() {
     }
   }
 
+  const handleCleanupAll = async () => {
+    const confirmed = confirm('DELETE ALL RECIPES? This will remove everything and cannot be undone!')
+    if (!confirmed) return
+
+    try {
+      setCleaningUp(true)
+      setActionError(null)
+      setCleanupMessage(null)
+      const result = await cleanupAllRecipes(DEMO_USER_ID)
+      setCleanupMessage(result.message)
+      await fetch({ query: searchQuery, status: statusFilter || undefined })
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to cleanup all recipes')
+    } finally {
+      setCleaningUp(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -78,12 +96,20 @@ export default function LibraryPage() {
         <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Recipe Library</h1>
         <div className="flex gap-2">
           <button
+            onClick={handleCleanupAll}
+            disabled={cleaningUp}
+            className="px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm min-h-touch flex items-center whitespace-nowrap disabled:opacity-50"
+            title="Delete ALL recipes (for testing)"
+          >
+            {cleaningUp ? '...' : 'Reset All'}
+          </button>
+          <button
             onClick={handleCleanup}
             disabled={cleaningUp}
             className="px-3 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors text-sm min-h-touch flex items-center whitespace-nowrap disabled:opacity-50"
             title="Delete all recipes with no ingredients and no steps"
           >
-            {cleaningUp ? 'Cleaning...' : 'Clean Up Failed'}
+            {cleaningUp ? '...' : 'Clean Failed'}
           </button>
           <Link
             href="/upload"
